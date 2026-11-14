@@ -9,12 +9,17 @@
 #                               itself, with the stock system, ends up on /mnt
 #   neither                     the device is the root filesystem
 # Without root=, or if that does not work: a shell on the console.
+#
+# The WiFi and Bluetooth chip needs two files that are not in the image: its
+# calibration data and a firmware patch. Every board has them in its stock
+# system, and /init carries them over to /usr/lib/firmware/brcm, from the stock
+# system or from the system that it is about to overwrite.
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p out/boot
 docker run --rm -v "$PWD":/work artik710-builder sh -ec '
 	d=$(mktemp -d) && cd "$d"
-	mkdir -p bin proc sys dev tmp host newroot
+	mkdir -p bin proc sys dev tmp host newroot fw
 	cp "$(command -v busybox)" bin/busybox
 	for a in $(bin/busybox --list); do [ -e "bin/$a" ] || ln -s busybox "bin/$a"; done
 	[ -e bin/devmem ] && [ -e bin/cttyhack ] && [ -e bin/switch_root ] && [ -e bin/xz ]
@@ -39,6 +44,14 @@ if [ -n "$root" ]; then
 	n=0
 	until [ -b "$root" ] || [ $n -ge 50 ]; do sleep 0.1; n=$((n + 1)); done
 	mount "$root" /host
+	b=usr/lib/firmware/brcm
+	w=brcmfmac43455-sdio.samsung,artik710-raptor.txt
+	h=BCM4345C0.samsung,artik710-raptor.hcd
+	{
+		cp /host/etc/wifi/nvram.txt /fw/$w
+		cp /host/etc/bluetooth/BCM4345C0*.hcd /fw/$h
+		cp /host/$b/$w /host/$b/$h /fw/
+	} 2>/dev/null
 	if [ -e $img.xz ]; then
 		echo "== Writing the new system to $root: do not switch off =="
 		# The copy in memory is checked before the device is touched.
@@ -55,7 +68,10 @@ if [ -n "$root" ]; then
 		mount -o loop $img /newroot && mount -o move /host /newroot/mnt
 	else
 		mount -o move /host /newroot
-	fi && exec switch_root /newroot /sbin/init
+	fi && {
+		mkdir -p /newroot/$b && cp -n /fw/* /newroot/$b/ 2>/dev/null
+		exec switch_root /newroot /sbin/init
+	}
 	echo "cannot start the system on root=$root"
 fi
 
