@@ -210,6 +210,25 @@
 		nexell,pin-pull = <1>;
 		nexell,pin-strength = <0>;
 	};
+
+	/*
+	 * Reset (low) and boot mode (low at reset: boot loader) of the Zigbee
+	 * chip. Inputs with a pull-up, so the chip runs and both lines stay
+	 * free for gpioset.
+	 */
+	zb_reset_pin: zb-reset-pin {
+		nexell,pins = "gpioc-8";
+		nexell,pin-function = <1>;	/* GPIO */
+		nexell,pin-pull = <1>;
+		nexell,pin-strength = <0>;
+	};
+
+	zb_boot_pin: zb-boot-pin {
+		nexell,pins = "gpioc-28";
+		nexell,pin-function = <0>;	/* GPIO */
+		nexell,pin-pull = <1>;
+		nexell,pin-strength = <0>;
+	};
 };
 
 /*
@@ -225,13 +244,38 @@
 	status = "okay";
 };
 
-/* The SoC file has the clock that U-Boot leaves on a console here. */
+/*
+ * Zigbee (EM358x), 57600 baud with XON/XOFF. The SoC file has the clock that
+ * U-Boot leaves on a console here.
+ */
 &uart0 {
 	clocks = <&uart0_clk>, <&uart0_clk>;
 	resets = <&nexell_reset 50>;	/* RESET_ID_UART0 */
 	pinctrl-names = "default";
-	pinctrl-0 = <&serial0_pins>;
+	pinctrl-0 = <&serial0_pins &zb_reset_pin &zb_boot_pin>;
 	status = "okay";
+};
+
+/* As the other ports: from PLL2 and not from the PLL of the CPUs. */
+&uart1_clk {
+	clk-input = <0x1004>;
+	clock-frequency = <147500000>;
+};
+
+/* Bluetooth of the BCM43455, at 3 Mbaud with RTS and CTS */
+&uart1 {
+	status = "okay";
+
+	bluetooth {
+		/* as the same chip on the Raspberry Pi 3B+ and 4 */
+		compatible = "brcm,bcm43438-bt";
+		shutdown-gpios = <&gpio_d 29 GPIO_ACTIVE_HIGH>;
+		device-wakeup-gpios = <&gpio_d 30 GPIO_ACTIVE_HIGH>;
+		interrupt-parent = <&alive_0>;
+		interrupts = <4 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "host-wakeup";
+		max-speed = <3000000>;
+	};
 };
 
 &uart2 {
@@ -303,6 +347,24 @@
 /* WL_REG_ON of the BCM43455 is GPIOD28 on this module. */
 &wifi_pwrseq {
 	reset-gpios = <&gpio_d 28 GPIO_ACTIVE_LOW>;
+};
+
+/* PLL0 / 8 is the 100 MHz for a card clock of 50 MHz. Not the PLL of the CPUs. */
+&sdhc1_clk {
+	clk-input = <0x1005>;
+};
+
+/* WiFi of the BCM43455 */
+&mmc1 {
+	compatible = "nexell,s5p6818-dw-mshc";
+	clocks = <&sdhc1_clk>, <&sdhc1_clk>;
+	status = "okay";
+};
+
+/* The chip raises ALIVE3 when it has something for the host. */
+&brcmf {
+	interrupt-parent = <&alive_0>;
+	interrupts = <3 IRQ_TYPE_LEVEL_HIGH>;
 };
 
 /* Not brought up yet. */
