@@ -373,6 +373,115 @@ index b83f22cf1f5d..27811c41ae9c 100644
  		/*
  		 * Thermal management units (exynos_tmu, SOC_ARCH_S5P6818). The
  		 * driver writes the SoC TIEOFF "sensing-start" bit for each. TMU0
+diff --git a/drivers/clk/nexell/clk-s5pxx18-pll.c b/drivers/clk/nexell/clk-s5pxx18-pll.c
+index 26c242d6febc..7ed244950c5b 100644
+--- a/drivers/clk/nexell/clk-s5pxx18-pll.c
++++ b/drivers/clk/nexell/clk-s5pxx18-pll.c
+@@ -24,6 +24,7 @@
+ #include <linux/io.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
++#include <linux/slab.h>
+ #include <asm/tlbflush.h>
+ #include "clk-s5pxx18.h"
+ 
+@@ -736,21 +737,33 @@ static struct clk *clk_pll_clock_register(const char *name,
+ 
+ static void __init clk_pll_sysclk_setup(struct device_node *np)
+ {
++	struct clk_hw_onecell_data *hw_data;
+ 	struct clk *clk;
+ 	unsigned long flags = 0;/* | CLK_GET_RATE_NOCACHE; */
+ 	unsigned long rate[ID_CPU_FCLK];
+ 	int i;
+ 
++	/* <&clock_pll n> is PLL n: the CPU nodes take PLL1 for cpufreq-dt */
++	hw_data = kzalloc(struct_size(hw_data, hws, ID_CPU_FCLK), GFP_KERNEL);
++	if (hw_data)
++		hw_data->num = ID_CPU_FCLK;
++
+ 	for (i = 0; i < ID_CPU_FCLK; i++) {
+ 		clk = clk_pll_clock_register(clk_pll_dev[i].name, NULL,
+ 					     &clk_pll_dev[i].hw, &clk_pll_ops,
+ 					     flags);
++		if (hw_data)
++			hw_data->hws[i] = clk ? &clk_pll_dev[i].hw :
++						ERR_PTR(-ENOENT);
+ 		if (NULL == clk)
+ 			continue;
+ 		rate[i] = clk_get_rate(clk);
+ 	}
+ 	pr_info("PLL : [0] = %10lu, [1] = %10lu, [2] = %10lu, [3] = %10lu\n",
+ 	       rate[0], rate[1], rate[2], rate[3]);
++
++	if (!hw_data || of_clk_add_hw_provider(np, of_clk_hw_onecell_get, hw_data))
++		pr_err("PLL: no clock provider for the device tree\n");
+ }
+ 
+ static void __init clk_pll_of_clocks_setup(struct device_node *node)
+diff --git a/drivers/clk/nexell/clk-s5pxx18.h b/drivers/clk/nexell/clk-s5pxx18.h
+index 899759bfae93..927f8d1d4aa8 100644
+--- a/drivers/clk/nexell/clk-s5pxx18.h
++++ b/drivers/clk/nexell/clk-s5pxx18.h
+@@ -29,11 +29,8 @@
+ 
+ #define I_CLOCK_NUM 6 /* PLL0, PLL1, PLL2, PLL3, EXT1, EXT2 */
+ 
+-#ifdef CONFIG_ARM_NEXELL_CPUFREQ
+-#define I_EXECEPT_CLK (1 << CONFIG_NEXELL_CPUFREQ_PLLDEV)
+-#else
+-#define I_EXECEPT_CLK (0)
+-#endif
++/* PLL1 is the PLL of the CPUs, which cpufreq changes: no generator uses it */
++#define I_EXECEPT_CLK (1 << I_PLL1_BIT)
+ 
+ #define I_CLOCK_MASK (((1 << I_CLOCK_NUM) - 1) & ~I_EXECEPT_CLK)
+ /*
+diff --git a/drivers/cpufreq/Kconfig.arm b/drivers/cpufreq/Kconfig.arm
+index a441668f9e0c..6dbbd28fa039 100644
+--- a/drivers/cpufreq/Kconfig.arm
++++ b/drivers/cpufreq/Kconfig.arm
+@@ -191,6 +191,15 @@ config ARM_S5PV210_CPUFREQ
+ 
+ 	  If in doubt, say N.
+ 
++config ARM_S5P6818_CPUFREQ
++	bool "Nexell S5P6818 CPU voltage table (ASV) for cpufreq-dt"
++	depends on ARCH_NEXELL || COMPILE_TEST
++	depends on CPUFREQ_DT && COMMON_CLK_S5PXX18
++	select PM_OPP
++	help
++	  Reads the ECID fuses of the S5P6818, picks the matching column
++	  (opp-microvolt-asvN) of the CPU OPP table and starts cpufreq-dt.
++
+ config ARM_SA1110_CPUFREQ
+ 	bool
+ 
+diff --git a/drivers/cpufreq/Makefile b/drivers/cpufreq/Makefile
+index 6c7a39b7f8d2..ed957e58d072 100644
+--- a/drivers/cpufreq/Makefile
++++ b/drivers/cpufreq/Makefile
+@@ -74,6 +74,7 @@ obj-$(CONFIG_ARM_QCOM_CPUFREQ_NVMEM)	+= qcom-cpufreq-nvmem.o
+ obj-$(CONFIG_ARM_RASPBERRYPI_CPUFREQ) 	+= raspberrypi-cpufreq.o
+ obj-$(CONFIG_ARM_S3C64XX_CPUFREQ)	+= s3c64xx-cpufreq.o
+ obj-$(CONFIG_ARM_S5PV210_CPUFREQ)	+= s5pv210-cpufreq.o
++obj-$(CONFIG_ARM_S5P6818_CPUFREQ)	+= s5p6818-cpufreq.o
+ obj-$(CONFIG_ARM_SA1110_CPUFREQ)	+= sa1110-cpufreq.o
+ obj-$(CONFIG_ARM_SCMI_CPUFREQ)		+= scmi-cpufreq.o
+ obj-$(CONFIG_ARM_SCPI_CPUFREQ)		+= scpi-cpufreq.o
+diff --git a/drivers/cpufreq/cpufreq-dt-platdev.c b/drivers/cpufreq/cpufreq-dt-platdev.c
+index ff1204c666b1..60b303d18094 100644
+--- a/drivers/cpufreq/cpufreq-dt-platdev.c
++++ b/drivers/cpufreq/cpufreq-dt-platdev.c
+@@ -143,6 +143,8 @@ static const struct of_device_id blocklist[] __initconst = {
+ 	{ .compatible = "mediatek,mt8365", },
+ 	{ .compatible = "mediatek,mt8516", },
+ 
++	{ .compatible = "nexell,s5p6818", },
++
+ 	{ .compatible = "nvidia,tegra20", },
+ 	{ .compatible = "nvidia,tegra30", },
+ 	{ .compatible = "nvidia,tegra114", },
 diff --git a/drivers/gpu/drm/nexell/Kconfig b/drivers/gpu/drm/nexell/Kconfig
 index 1dbb0ef39a0d..a82c3ffe2e6d 100644
 --- a/drivers/gpu/drm/nexell/Kconfig
