@@ -1,0 +1,137 @@
+diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
+index 89b6a7dc6d32..23a8e7a76ea0 100644
+--- a/arch/arm64/Kconfig
++++ b/arch/arm64/Kconfig
+@@ -701,6 +701,24 @@ config ARM64_ERRATUM_1530923
+ 
+ 	  If unsure, say Y.
+ 
++config ARM64_WORKAROUND_CCI400_DVMV7
++	bool "CCI-400 without DVMv8: broadcast whole-TLB invalidations only"
++	default ARCH_NEXELL
++	help
++	  The CCI-400 that joins the two Cortex-A53 clusters of the Nexell
++	  S5P6818 only forwards DVMv7 messages. Of the TLB invalidations issued
++	  in one cluster, the other one does not apply those by address, and
++	  those by ASID only while the ASID is below 256. Stale translations
++	  stay there and memory gets corrupted at random.
++
++	  With this option every broadcast invalidation of the kernel's stage 1
++	  TLB entries is an invalidation of the whole TLB, which is forwarded
++	  correctly. This costs TLB misses, and it is decided at build time:
++	  the kernel does it on every machine it runs on. KVM invalidates by
++	  address as well and is not available with this option.
++
++	  Say N unless the kernel is built for the S5P6818.
++
+ config ARM64_WORKAROUND_REPEAT_TLBI
+ 	bool
+ 
+diff --git a/arch/arm64/include/asm/tlbflush.h b/arch/arm64/include/asm/tlbflush.h
+index e0e84332f51b..20c065e4a29e 100644
+--- a/arch/arm64/include/asm/tlbflush.h
++++ b/arch/arm64/include/asm/tlbflush.h
+@@ -357,6 +357,17 @@ static inline void __tlbi_sync_s1ish_hyp(void)
+  *	on top of these routines, since that is our interface to the mmu_gather
+  *	API as used by munmap() and friends.
+  */
++/*
++ * The CCI-400 that joins the two CPU clusters of the Nexell S5P6818 only
++ * forwards DVMv7 messages: the other cluster does not apply an invalidation by
++ * address, and one by ASID only while the ASID is below 256. An invalidation of
++ * the whole TLB is applied, so that is the only broadcast invalidation used.
++ */
++static inline bool tlbi_broadcast_all_only(void)
++{
++	return IS_ENABLED(CONFIG_ARM64_WORKAROUND_CCI400_DVMV7);
++}
++
+ static inline void local_flush_tlb_all(void)
+ {
+ 	dsb(nshst);
+@@ -378,9 +389,13 @@ static inline void flush_tlb_mm(struct mm_struct *mm)
+ 	unsigned long asid;
+ 
+ 	dsb(ishst);
+-	asid = __TLBI_VADDR(0, ASID(mm));
+-	__tlbi(aside1is, asid);
+-	__tlbi_user(aside1is, asid);
++	if (tlbi_broadcast_all_only()) {
++		__tlbi(vmalle1is);
++	} else {
++		asid = __TLBI_VADDR(0, ASID(mm));
++		__tlbi(aside1is, asid);
++		__tlbi_user(aside1is, asid);
++	}
+ 	__tlbi_sync_s1ish(mm);
+ 	mmu_notifier_arch_invalidate_secondary_tlbs(mm, 0, -1UL);
+ }
+@@ -402,6 +417,12 @@ static inline bool arch_tlbbatch_should_defer(struct mm_struct *mm)
+  */
+ static inline void arch_tlbbatch_flush(struct arch_tlbflush_unmap_batch *batch)
+ {
++	/* Nothing was sent for the single pages: one flush for the batch. */
++	if (tlbi_broadcast_all_only()) {
++		flush_tlb_all();
++		return;
++	}
++
+ 	__tlbi_sync_s1ish_batch();
+ }
+ 
+@@ -568,7 +589,8 @@ static __always_inline void __do_flush_tlb_range(struct vm_area_struct *vma,
+ 
+ 	pages = (end - start) >> PAGE_SHIFT;
+ 
+-	if (__flush_tlb_range_limit_excess(pages, stride)) {
++	if (__flush_tlb_range_limit_excess(pages, stride) ||
++	    (tlbi_broadcast_all_only() && !(flags & TLBF_NOBROADCAST))) {
+ 		flush_tlb_mm(mm);
+ 		return;
+ 	}
+@@ -657,7 +679,8 @@ static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end
+ 	end = round_up(end, stride);
+ 	pages = (end - start) >> PAGE_SHIFT;
+ 
+-	if (__flush_tlb_range_limit_excess(pages, stride)) {
++	if (__flush_tlb_range_limit_excess(pages, stride) ||
++	    tlbi_broadcast_all_only()) {
+ 		flush_tlb_all();
+ 		return;
+ 	}
+@@ -677,6 +700,11 @@ static inline void __flush_tlb_kernel_pgtable(unsigned long kaddr)
+ {
+ 	unsigned long addr = __TLBI_VADDR(kaddr, 0);
+ 
++	if (tlbi_broadcast_all_only()) {
++		flush_tlb_all();
++		return;
++	}
++
+ 	dsb(ishst);
+ 	__tlbi(vaae1is, addr);
+ 	__tlbi_sync_s1ish_kernel();
+@@ -688,6 +716,11 @@ static inline void arch_tlbbatch_add_pending(struct arch_tlbflush_unmap_batch *b
+ {
+ 	struct vm_area_struct vma = { .vm_mm = mm, .vm_flags = 0 };
+ 
++	if (tlbi_broadcast_all_only()) {
++		mmu_notifier_arch_invalidate_secondary_tlbs(mm, start, end);
++		return;
++	}
++
+ 	__flush_tlb_range(&vma, start, end, PAGE_SIZE, 3,
+ 			  TLBF_NOWALKCACHE | TLBF_NOSYNC);
+ }
+diff --git a/arch/arm64/kvm/Kconfig b/arch/arm64/kvm/Kconfig
+index 449154f9a485..6706de947105 100644
+--- a/arch/arm64/kvm/Kconfig
++++ b/arch/arm64/kvm/Kconfig
+@@ -19,6 +19,7 @@ if VIRTUALIZATION
+ 
+ menuconfig KVM
+ 	bool "Kernel-based Virtual Machine (KVM) support"
++	depends on !ARM64_WORKAROUND_CCI400_DVMV7
+ 	select KVM_COMMON
+ 	select KVM_GENERIC_HARDWARE_ENABLING
+ 	select HAVE_KVM_CPU_RELAX_INTERCEPT
