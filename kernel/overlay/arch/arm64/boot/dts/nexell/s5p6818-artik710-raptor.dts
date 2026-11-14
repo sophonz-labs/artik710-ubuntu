@@ -12,6 +12,7 @@
 /memreserve/ 0x7de00000 0x00100000;
 
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/thermal/thermal.h>
 #include "s5p6818.dtsi"
 
 / {
@@ -56,6 +57,129 @@
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0x0 0x40000000 0x0 0x3df00000>;
+	};
+
+	/*
+	 * The CPU frequencies and voltages of the stock kernel. A chip has a
+	 * level from 0 to 4 in its fuses, and the higher the level, the less
+	 * voltage it needs: opp-microvolt is for level 0, opp-microvolt-asvN
+	 * for level N. The driver s5p6818-cpufreq reads the level.
+	 */
+	cpu_opp_table: opp-table-cpu {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-400000000 {
+			opp-hz = /bits/ 64 <400000000>;
+			opp-microvolt = <1000000>;
+			opp-microvolt-asv1 = <1000000>;
+			opp-microvolt-asv2 = <1000000>;
+			opp-microvolt-asv3 = <1000000>;
+			opp-microvolt-asv4 = <1000000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-500000000 {
+			opp-hz = /bits/ 64 <500000000>;
+			opp-microvolt = <1025000>;
+			opp-microvolt-asv1 = <1000000>;
+			opp-microvolt-asv2 = <1000000>;
+			opp-microvolt-asv3 = <1000000>;
+			opp-microvolt-asv4 = <1000000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-600000000 {
+			opp-hz = /bits/ 64 <600000000>;
+			opp-microvolt = <1050000>;
+			opp-microvolt-asv1 = <1000000>;
+			opp-microvolt-asv2 = <1000000>;
+			opp-microvolt-asv3 = <1000000>;
+			opp-microvolt-asv4 = <1000000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-700000000 {
+			opp-hz = /bits/ 64 <700000000>;
+			opp-microvolt = <1075000>;
+			opp-microvolt-asv1 = <1025000>;
+			opp-microvolt-asv2 = <1000000>;
+			opp-microvolt-asv3 = <1000000>;
+			opp-microvolt-asv4 = <1000000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-800000000 {
+			opp-hz = /bits/ 64 <800000000>;
+			opp-microvolt = <1100000>;
+			opp-microvolt-asv1 = <1050000>;
+			opp-microvolt-asv2 = <1000000>;
+			opp-microvolt-asv3 = <1000000>;
+			opp-microvolt-asv4 = <1000000>;
+			clock-latency-ns = <100000>;
+			/* The boot loader runs at this one: set for a restart. */
+			opp-suspend;
+		};
+
+		opp-900000000 {
+			opp-hz = /bits/ 64 <900000000>;
+			opp-microvolt = <1125000>;
+			opp-microvolt-asv1 = <1075000>;
+			opp-microvolt-asv2 = <1025000>;
+			opp-microvolt-asv3 = <1000000>;
+			opp-microvolt-asv4 = <1000000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-1000000000 {
+			opp-hz = /bits/ 64 <1000000000>;
+			opp-microvolt = <1150000>;
+			opp-microvolt-asv1 = <1100000>;
+			opp-microvolt-asv2 = <1050000>;
+			opp-microvolt-asv3 = <1025000>;
+			opp-microvolt-asv4 = <1000000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-1100000000 {
+			opp-hz = /bits/ 64 <1100000000>;
+			opp-microvolt = <1175000>;
+			opp-microvolt-asv1 = <1125000>;
+			opp-microvolt-asv2 = <1075000>;
+			opp-microvolt-asv3 = <1050000>;
+			opp-microvolt-asv4 = <1000000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-1200000000 {
+			opp-hz = /bits/ 64 <1200000000>;
+			opp-microvolt = <1225000>;
+			opp-microvolt-asv1 = <1175000>;
+			opp-microvolt-asv2 = <1125000>;
+			opp-microvolt-asv3 = <1075000>;
+			opp-microvolt-asv4 = <1025000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-1300000000 {
+			opp-hz = /bits/ 64 <1300000000>;
+			opp-microvolt = <1275000>;
+			opp-microvolt-asv1 = <1225000>;
+			opp-microvolt-asv2 = <1175000>;
+			opp-microvolt-asv3 = <1125000>;
+			opp-microvolt-asv4 = <1075000>;
+			clock-latency-ns = <100000>;
+		};
+
+		opp-1400000000 {
+			opp-hz = /bits/ 64 <1400000000>;
+			opp-microvolt = <1325000>;
+			opp-microvolt-asv1 = <1275000>;
+			opp-microvolt-asv2 = <1225000>;
+			opp-microvolt-asv3 = <1175000>;
+			opp-microvolt-asv4 = <1125000>;
+			clock-latency-ns = <100000>;
+		};
 	};
 
 	/* The stock system sets this pin with the EHCI and leaves it high. */
@@ -185,9 +309,10 @@
 		#size-cells = <0>;
 
 		/*
-		 * NXE2000: the registers of the Ricoh RC5T619. No regulator
-		 * is described: the boot loader switches all of them on, and
-		 * with the voltages that the stock system has.
+		 * NXE2000: the registers of the Ricoh RC5T619. Only the rail
+		 * of the CPUs is described, for the frequency scaling: the
+		 * boot loader switches all rails on, and with the voltages
+		 * that the stock system has.
 		 */
 		pmic@32 {
 			compatible = "ricoh,rc5t619";
@@ -197,6 +322,19 @@
 			pinctrl-names = "default";
 			pinctrl-0 = <&pmic_irq_pin>;
 			system-power-controller;
+
+			regulators {
+				vdd_cpu: DCDC1 {
+					regulator-name = "vdd_cpu";
+					/* the lowest and the highest voltage of the table */
+					regulator-min-microvolt = <1000000>;
+					regulator-max-microvolt = <1325000>;
+					/* the stock kernel waits this long after the largest step */
+					regulator-settling-time-up-us = <102>;
+					regulator-always-on;
+					regulator-boot-on;
+				};
+			};
 		};
 	};
 
@@ -251,6 +389,73 @@
 
 		simple-audio-card,codec {
 			sound-dai = <&rt5658>;
+		};
+	};
+};
+
+/* PLL1 is the clock of all eight CPUs. */
+&cpu0 {
+	clocks = <&clock_pll 1>;
+	operating-points-v2 = <&cpu_opp_table>;
+	cpu-supply = <&vdd_cpu>;
+	#cooling-cells = <2>;
+};
+
+&cpu1 {
+	clocks = <&clock_pll 1>;
+	operating-points-v2 = <&cpu_opp_table>;
+	cpu-supply = <&vdd_cpu>;
+	#cooling-cells = <2>;
+};
+
+&cpu2 {
+	clocks = <&clock_pll 1>;
+	operating-points-v2 = <&cpu_opp_table>;
+	cpu-supply = <&vdd_cpu>;
+	#cooling-cells = <2>;
+};
+
+&cpu3 {
+	clocks = <&clock_pll 1>;
+	operating-points-v2 = <&cpu_opp_table>;
+	cpu-supply = <&vdd_cpu>;
+	#cooling-cells = <2>;
+};
+
+&cpu4 {
+	clocks = <&clock_pll 1>;
+	operating-points-v2 = <&cpu_opp_table>;
+	cpu-supply = <&vdd_cpu>;
+	#cooling-cells = <2>;
+};
+
+&cpu5 {
+	clocks = <&clock_pll 1>;
+	operating-points-v2 = <&cpu_opp_table>;
+	cpu-supply = <&vdd_cpu>;
+	#cooling-cells = <2>;
+};
+
+&cpu6 {
+	clocks = <&clock_pll 1>;
+	operating-points-v2 = <&cpu_opp_table>;
+	cpu-supply = <&vdd_cpu>;
+	#cooling-cells = <2>;
+};
+
+&cpu7 {
+	clocks = <&clock_pll 1>;
+	operating-points-v2 = <&cpu_opp_table>;
+	cpu-supply = <&vdd_cpu>;
+	#cooling-cells = <2>;
+};
+
+/* Slower CPUs at the passive trip, which is at 80 C. */
+&cpu_thermal {
+	cooling-maps {
+		map0 {
+			trip = <&cpu_alert>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 		};
 	};
 };
