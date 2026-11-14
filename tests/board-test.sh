@@ -2,7 +2,8 @@
 # Check the hardware interfaces of an ARTIK710 Raptor board from the running
 # system. Run it as root. Nothing has to be plugged in: what cannot be seen
 # without a cable, a card or a hand on the board is reported as "skip".
-# The Zigbee check resets the Zigbee chip.
+# The Zigbee check resets the Zigbee chip, the SPI check sends data on SPI2 and
+# the PWM check runs output 2 (GPIOC14) for a moment.
 #
 #   board-test             every check
 #   board-test uart i2c    only these
@@ -122,6 +123,47 @@ t_i2c() {
 	has /sys/bus/i2c/devices/10-0032/driver "PMIC on i2c-10"
 }
 
+t_adc() {
+	d=$(grep -ls c0053000.adc /sys/bus/iio/devices/*/name)
+	[ -n "$d" ] || { bad "adc: no device"; return; }
+	v=
+	for n in 0 1 2 3 4 5 6 7; do
+		r=$(cat "${d%/name}/in_voltage${n}_raw" 2>/dev/null) && [ "$r" -le 4095 ] ||
+			{ bad "adc: channel $n does not convert"; return; }
+		v="$v $r"
+	done
+	ok "adc:$v"
+}
+
+t_spi() {
+	if o=$(spi-loop 2>&1); then
+		ok "spi2: transfers complete"
+	else
+		bad "spi2: $(echo "$o" | grep -m 1 FAIL)"
+	fi
+	skip "spi2 pins: wire MOSI to MISO and run spi-loop -w"
+}
+
+t_pwm() {
+	c=$(echo /sys/bus/platform/devices/c0018000.pwm/pwm/pwmchip*)
+	# 20 Hz, and the pin is watched
+	echo 2 > "$c/export" && echo 50000000 > "$c/pwm2/period" &&
+		echo 25000000 > "$c/pwm2/duty_cycle" && echo 1 > "$c/pwm2/enable" ||
+		{ bad "pwm: output 2 cannot be set"; return; }
+	n=0 i=0
+	while [ $i -lt 40 ]; do
+		n=$((n + (($(busybox devmem 0xc001c018 32) >> 14) & 1)))
+		i=$((i + 1))
+	done
+	echo 0 > "$c/pwm2/enable"
+	echo 2 > "$c/unexport"
+	if [ $n -gt 4 ] && [ $n -lt 36 ]; then
+		ok "pwm: output 2 toggles"
+	else
+		bad "pwm: output 2 was high in $n of 40 samples"
+	fi
+}
+
 t_keys() {
 	if grep -qs gpio-keys /proc/bus/input/devices; then
 		ok "keys: input device"
@@ -143,7 +185,7 @@ t_watchdog() {
 	has /dev/watchdog0 "watchdog"
 }
 
-all="cpu storage net usb wifi bluetooth uart zigbee i2c keys rtc watchdog"
+all="cpu storage net usb wifi bluetooth uart zigbee i2c adc spi pwm keys rtc watchdog"
 [ $# -gt 0 ] || set -- $all
 for t; do
 	case " $all " in
