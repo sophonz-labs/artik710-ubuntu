@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""Drive the ARTIK710 debug console (ttySAC3) from the host.
+
+Each invocation opens the port, runs the given steps in order, and closes it.
+Everything read from the port is appended to the log file (default:
+logs/serial-YYYYmmdd.log) and echoed to stdout.
+
+If a `screen` session already has the port open, the steps go through that
+session instead (typed with "screen -X stuff", read from its log file), so the
+console can stay open in a terminal while this runs.
+
+Steps (run left to right):
+  log:SECONDS            read for SECONDS
+  send:TEXT              send TEXT followed by CR
+  raw:TEXT               send TEXT as is (\\r \\n \\x03 escapes allowed)
+  expect:REGEX[@SECS]    read until REGEX matches (default 30 s); fails on timeout
+  break                  hammer CR until the U-Boot prompt shows up (use right
+                         after triggering a reboot)
+  uboot:CMD              send CMD at the U-Boot prompt and wait for the prompt
+  ubootnw:CMD            send CMD at the U-Boot prompt and do not wait (boot cmds)
+  login:USER:PASS        log in on a getty and wait for a shell prompt
+  sh:CMD[@SECS]          run CMD in a logged-in shell, wait for it to finish
+
+Example:
+  artik-serial break 'uboot:printenv bootargs' 'ubootnw:boot' 'expect:login:@90'
+"""
+import os
+import re
+import sys
+import time
+import glob
+import subprocess
+
+PROMPT = re.compile(rb"artik710# $")
+SHELL_MARK = "__ARTIK_DONE__"
+
+
+def find_port():
+    env = os.environ.get("ARTIK_TTY")
+    if env:
+        return env
+    ports = sorted(glob.glob("/dev/cu.usbserial-*"))
+    if not ports:
+        sys.exit("no /dev/cu.usbserial-* found; set ARTIK_TTY")
+    return ports[0]
+
+
+def screen_holding(port):
+    """Session id of a screen that has the port open, if any."""
+    pids = subprocess.run(["lsof", "-t", port], capture_output=True, text=True).stdout.split()
+    for pid in pids:
+        comm = subprocess.run(["ps", "-o", "comm=", "-p", pid], capture_output=True, text=True).stdout
+        if "screen" in comm.lower():
+            return pid
+    return None
+
+
+class ScreenPort:
+    """The serial.Serial calls Console uses, done through a screen session."""
+
+    def __init__(self, sid, tap):
+        self.sid = sid
+        # flush 0: screen writes its log as the data arrives
+        for args in (["logfile", tap], ["logfile", "flush", "0"], ["log", "on"]):
+            self.cmd(*args)
+        open(tap, "ab").close()
+        self.tap = open(tap, "rb")
+        self.tap.seek(0, os.SEEK_END)
+
+    def cmd(self, name, *args):
+        # screen joins the arguments and parses the line again (256 bytes at
+        # most); inside single quotes it takes every byte literally.
+        quoted = [b"'" + os.fsencode(a).replace(b"'", b"'\\''") + b"'" for a in args]
+        subprocess.run(["screen", "-S", self.sid, "-p", "0", "-X", name, *quoted], check=True)
+
+    def read(self, size):
+        data = self.tap.read(size)
+        if not data:
+            time.sleep(0.05)
+        return data
+
+    def write(self, data):
+        for i in range(0, len(data), 64):
+            self.cmd("stuff", data[i:i + 64])
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.tap.close()
+
+
+class Console:
+    def __init__(self, port, logpath):
+        os.makedirs(os.path.dirname(logpath), exist_ok=True)
+        sid = screen_holding(port)
+        if sid:
+            self.ser = ScreenPort(sid, os.path.join(os.path.dirname(logpath), "screen-tap.log"))
+        else:
+            import serial
+            self.ser = serial.Serial(port, 115200, timeout=0.05, rtscts=False, dsrdtr=False)
+        self.buf = b""
+        self.log = open(logpath, "ab")
+        self.log.write(f"\n===== {time.strftime('%F %T')} {' '.join(sys.argv[1:])} =====\n".encode())
+
+    def close(self):
+        self.log.close()
+        self.ser.close()
+
+    def pump(self):
+        data = self.ser.read(4096)
+        if data:
+            self.buf += data
+            self.log.write(data)
+            self.log.flush()
+            sys.stdout.write(data.decode("utf-8", "replace").replace("\r", ""))
+            sys.stdout.flush()
+        return data
+
+    def read_for(self, seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            self.pump()
+
+    def write(self, data, chardelay=0.002):
+        # U-Boot polls its UART; pasting a long line at full speed drops characters.
+        for b in data:
+            self.ser.write(bytes([b]))
+            if chardelay:
+                time.sleep(chardelay)
+        self.ser.flush()
+
+    def expect(self, pattern, timeout=30, keepalive=None):
+        if isinstance(pattern, str):
+            pattern = pattern.encode()
+        if isinstance(pattern, bytes):
+            pattern = re.compile(pattern)
+        self.buf = self.buf[-4096:]
+        start = len(self.buf)
+        scan_from = max(0, start - 64)
+        end = time.time() + timeout
+        last_keep = 0
+        while time.time() < end:
+            if keepalive and time.time() - last_keep > 0.1:
+                self.ser.write(keepalive)
+                last_keep = time.time()
+            self.pump()
+            m = pattern.search(self.buf, scan_from)
+            if m:
+                return m
+        raise TimeoutError(f"timeout waiting for {pattern.pattern!r}")
+
+    def uboot_break(self, timeout=120):
+        # CR is harmless before U-Boot starts and stops the autoboot countdown.
+        self.buf = b""
+        self.expect(PROMPT, timeout=timeout, keepalive=b"\r")
+        # drain the echo of the extra CRs so later prompts are unambiguous
+        time.sleep(0.5)
+        self.read_for(0.5)
+        self.buf = b""
+
+    def uboot(self, cmd, timeout=60, wait=True):
+        self.buf = b""
+        self.write(cmd.encode() + b"\r")
+        if wait:
+            self.expect(PROMPT, timeout=timeout)
+
+    def login(self, user, password, timeout=60):
+        self.write(b"\r")
+        m = self.expect(rb"(login: $|[#$] $)", timeout=timeout)
+        if m.group(0).endswith(b"login: "):
+            self.write(user.encode() + b"\r")
+            self.expect(rb"[Pp]assword: ?$", timeout=20)
+            self.write(password.encode() + b"\r")
+            self.expect(rb"[#$] $", timeout=30)
+
+    def sh(self, cmd, timeout=60):
+        self.buf = b""
+        self.write(f"{cmd}; echo {SHELL_MARK}$?\r".encode())
+        m = self.expect(rf"{SHELL_MARK}(\d+)\r?\n".encode(), timeout=timeout)
+        return int(m.group(1))
+
+
+def unescape(s):
+    return s.encode().decode("unicode_escape").encode("latin1")
+
+
+def split_timeout(arg, default):
+    if "@" in arg:
+        body, _, t = arg.rpartition("@")
+        try:
+            return body, float(t)
+        except ValueError:
+            pass
+    return arg, default
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        sys.exit(__doc__)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    logpath = os.environ.get("ARTIK_SERIAL_LOG") or os.path.join(root, "logs", f"serial-{time.strftime('%Y%m%d')}.log")
+    con = Console(find_port(), logpath)
+    rc = 0
+    try:
+        for step in sys.argv[1:]:
+            kind, _, arg = step.partition(":")
+            if kind == "log":
+                con.read_for(float(arg or 5))
+            elif kind == "send":
+                con.write(arg.encode() + b"\r")
+            elif kind == "raw":
+                con.write(unescape(arg))
+            elif kind == "expect":
+                pat, t = split_timeout(arg, 30)
+                con.expect(pat, timeout=t)
+            elif kind == "break":
+                con.uboot_break(float(arg) if arg else 120)
+            elif kind == "uboot":
+                cmd, t = split_timeout(arg, 60)
+                con.uboot(cmd, timeout=t)
+            elif kind == "ubootnw":
+                con.uboot(arg, wait=False)
+            elif kind == "login":
+                user, _, pw = arg.partition(":")
+                con.login(user, pw)
+            elif kind == "sh":
+                cmd, t = split_timeout(arg, 60)
+                rc = con.sh(cmd, timeout=t)
+            else:
+                sys.exit(f"unknown step: {step}")
+    except TimeoutError as e:
+        print(f"\n[artik-serial] {e}", file=sys.stderr)
+        rc = 124
+    finally:
+        con.close()
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()

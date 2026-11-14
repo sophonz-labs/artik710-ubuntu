@@ -1,0 +1,60 @@
+#!/bin/sh
+# Boot a test kernel on the ARTIK710 without changing what the stock system
+# boots from. Image, the dtb and uInitrd from out/boot/ are copied over ssh to
+# /root/testboot on the stock root filesystem (eMMC p7). U-Boot loads them from
+# there, to the addresses and with the booti call of its own boot command. (Not
+# TFTP: macOS only lets system programs such as ssh talk to the local network
+# from this kind of terminal session.)
+#
+# U-Boot arms the SoC watchdog right before booti, so a kernel that hangs is
+# reset after about 10 s and the board boots the stock system again. The
+# initramfs (tools/mk-initramfs) stops the watchdog once it runs.
+#
+#   tools/artik-testboot [extra kernel arguments...]
+# Without root=DEV the initramfs ends in a shell on the console. With
+# root=/dev/mmcblk0p7 it starts the system of tools/artik-push-rootfs.
+# Environment:
+#   ARTIK_HOST       board IP (192.168.0.15)
+#   ARTIK_DTB        device tree file name in out/boot
+#   ARTIK_BOOT_DIR   take the three files from here instead of out/boot
+#   ARTIK_BOOT_WAIT  seconds of console log to capture after booti (40)
+set -e
+cd "$(dirname "$0")/.."
+dtb=${ARTIK_DTB:-s5p6818-artik710-raptor.dtb}
+b=${ARTIK_BOOT_DIR:-out/boot}
+dir=/root/testboot
+args="console=ttySAC3,115200n8 earlycon loglevel=8 $*"
+
+# Nothing answers on ssh: a test initramfs shell is running, or the board sits
+# in U-Boot. The first line resets from the test initramfs shell (watchdog as
+# the fallback) and is an unknown command in U-Boot. Either way the U-Boot
+# prompt comes next, and "boot" starts stock from there.
+if ! tools/artik-ssh true 2>/dev/null; then
+	tools/artik-serial \
+		'raw:\rdevmem 0xc0019008 32 0xffff; devmem 0xc0019000 32 0xff3d; reboot -f\r' \
+		break ubootnw:boot 'expect:login: $@150' >/dev/null
+	n=0
+	until tools/artik-ssh true 2>/dev/null; do
+		n=$((n + 1)); [ $n -lt 20 ] || { echo "stock system does not answer on ssh" >&2; exit 1; }
+		sleep 3
+	done
+fi
+
+# The new system has the stock root on /mnt (tools/mk-initramfs).
+tar cf - -C "$b" Image "$dtb" uInitrd |
+	tools/artik-ssh "d=$dir; [ ! -d /mnt\$d ] || d=/mnt\$d
+		mkdir -p \$d && tar xf - -C \$d && sync"
+tools/artik-ssh reboot || true
+
+# Each file is checked after loading: U-Boot's crc32 against the host's.
+p='expect:artik710# $@10'
+exec tools/artik-serial break \
+	"uboot:ext4load mmc 0:7 0x40080000 $dir/Image" \
+	'ubootnw:crc32 0x40080000 ${filesize}' "expect:==> $(crc32 "$b/Image")@20" "$p" \
+	"uboot:ext4load mmc 0:7 0x4a000000 $dir/$dtb" \
+	'ubootnw:crc32 0x4a000000 ${filesize}' "expect:==> $(crc32 "$b/$dtb")@20" "$p" \
+	"uboot:ext4load mmc 0:7 0x49000000 $dir/uInitrd" \
+	'ubootnw:crc32 0x49000000 ${filesize}' "expect:==> $(crc32 "$b/uInitrd")@20" "$p" \
+	"uboot:setenv bootargs $args" \
+	'ubootnw:mw.l 0xc0019000 0xff1c; mw.l 0xc001900c 0; mw.l 0xc0019004 0xffff; mw.l 0xc0019008 0xffff; mw.l 0xc0019000 0xff3d; booti 0x40080000 0x49000000 0x4a000000' \
+	"log:${ARTIK_BOOT_WAIT:-40}"

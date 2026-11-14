@@ -1,0 +1,13 @@
+#!/bin/sh
+# Copy the image built by tools/mk-rootfs to the running stock system, as
+# /root/ubuntu-26.04.img on eMMC p7. Boot it from there with:
+#   tools/artik-testboot root=/dev/mmcblk0p7
+set -e
+cd "$(dirname "$0")/.."
+# The new system runs from that very file (and has the stock root on /mnt).
+tools/artik-ssh '[ ! -e /mnt/root/ubuntu-26.04.img ]' ||
+	{ echo "the stock system is not running: reboot the board first" >&2; exit 1; }
+# pipefail on the board: a cut-off stream fails gunzip, and with it this script
+docker run --rm -v artik710-rootfs:/rootfs artik710-builder gzip -1c /rootfs/rootfs.ext4 |
+	tools/artik-ssh 'set -o pipefail; gunzip | dd of=/root/ubuntu-26.04.img bs=1M conv=sparse status=none &&
+		sync && ls -ls /root/ubuntu-26.04.img && df -h / | tail -1'

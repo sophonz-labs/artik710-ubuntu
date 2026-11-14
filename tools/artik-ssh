@@ -1,0 +1,10 @@
+#!/bin/sh
+# ssh to the ARTIK710 board with the project key. Override host with ARTIK_HOST.
+# The host key is not pinned: stock system, test initramfs and the new system
+# answer on the same address with different keys.
+# LC_ALL: macOS forwards the locale and the board does not have en_US.UTF-8.
+# ServerAlive*: give up about 10 s after the board has reset under the session.
+LC_ALL=C exec ssh -i "$HOME/.ssh/artik710_ed25519" -o IdentitiesOnly=yes -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  -o LogLevel=ERROR -o ConnectTimeout=8 -o ServerAliveInterval=3 -o ServerAliveCountMax=3 \
+  "root@${ARTIK_HOST:-192.168.0.15}" "$@"
