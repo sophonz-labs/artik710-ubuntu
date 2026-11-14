@@ -10,9 +10,9 @@
 #   tools/kernel setup                 create the tree in a new volume, with
 #                                      kernel/patches/artik710 applied
 #   tools/kernel build [make targets]  copy overlay + work into the tree, build
-#                                      (default: Image dtbs modules and install
-#                                      the modules to /src/mods for
-#                                      tools/mk-rootfs), put Image and the ARTIK
+#                                      (default: Image dtbs modules), install
+#                                      modules that were built to /src/mods for
+#                                      tools/mk-rootfs, put Image and the ARTIK
 #                                      dtbs in out/boot/
 #   tools/kernel sh [command...]       run a command (or a shell) in the tree
 #   tools/kernel pull PATH...          copy base files to kernel/work/ to edit
@@ -57,13 +57,14 @@ setup)
 		git log --oneline | wc -l; git status --short'
 	;;
 build)
-	[ $# -gt 0 ] || set -- Image dtbs modules modules_install
+	[ $# -gt 0 ] || set -- Image dtbs modules
 	mkdir -p out/boot
 	run sh -ec "$sync"'
 		[ /src/out/.config -nt arch/arm64/configs/artik710_defconfig ] || '"$make"' artik710_defconfig
-		# no modules of an earlier configuration in the root filesystem
-		case " $* " in *" modules_install "*) rm -rf /src/mods ;; esac
 		'"$make"' "$@"
+		# A run of its own: in the same one make does not wait for the modules.
+		# And no modules of an earlier configuration in the root filesystem.
+		case " $* " in *" modules "*) rm -rf /src/mods; '"$make"' modules_install ;; esac
 		cd /src/out/arch/arm64/boot
 		for f in Image dts/nexell/s5p6818-artik710*.dtb; do
 			[ ! -e "$f" ] || cp "$f" /work/out/boot/
