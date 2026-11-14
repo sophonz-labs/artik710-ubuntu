@@ -1,0 +1,93 @@
+#!/bin/sh
+# Kernel work helper. The source tree lives in the Docker volume artik710-src
+# at /src/linux-7.2 (macOS filesystems are case-insensitive, the kernel tree is
+# not). Its tag "armbian-base" is v7.2.15 + kernel/patches/armbian-s5p6818-7.2.
+# On top of that come:
+#   kernel/overlay/   new files, kept in this repo as plain files
+#   kernel/work/      editing copies of files that exist in the base (not in
+#                     git; "export" turns them into a patch)
+#
+#   tools/kernel setup                 create the tree in a new volume, with
+#                                      kernel/patches/artik710 applied
+#   tools/kernel build [make targets]  copy overlay + work into the tree, build
+#                                      (default: Image dtbs modules and install
+#                                      the modules to /src/mods for
+#                                      tools/mk-rootfs), put Image and the ARTIK
+#                                      dtbs in out/boot/
+#   tools/kernel sh [command...]       run a command (or a shell) in the tree
+#   tools/kernel pull PATH...          copy base files to kernel/work/ to edit
+#   tools/kernel export                write the changes to base files to
+#                                      kernel/patches/artik710/
+# ARTIK_CCACHE=DIR keeps the compiler cache in DIR instead of a Docker volume.
+set -e
+cd "$(dirname "$0")/.."
+
+run() {
+	docker run --rm ${TTY:+-it} -v artik710-src:/src \
+		-v "${ARTIK_CCACHE:-artik710-ccache}":/ccache \
+		-v "$PWD":/work -e CCACHE_DIR=/ccache -w /src/linux-7.2 \
+		artik710-builder "$@"
+}
+
+sync='cp -a /work/kernel/overlay/. . ; [ ! -d /work/kernel/work ] || cp -a /work/kernel/work/. .'
+# LOCALVERSION= : no "+" after the release for a tree that is not at a tag
+make='make O=/src/out ARCH=arm64 CC="ccache gcc" LOCALVERSION= INSTALL_MOD_PATH=/src/mods INSTALL_MOD_STRIP=1 -j$(nproc)'
+
+cmd=${1:-help}
+[ $# -eq 0 ] || shift
+case $cmd in
+setup)
+	docker volume create artik710-src >/dev/null
+	run sh -ec '
+		[ ! -e .git ] || { echo "/src/linux-7.2 is already there" >&2; exit 1; }
+		wget -qO- https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.15.tar.xz |
+			tar xJ --strip-components=1
+		git init -q -b artik710
+		git config user.name artik710
+		git config user.email artik710@localhost
+		git config gc.auto 0
+		git add -A
+		git commit -qm "Linux 7.2.15"
+		p=/work/kernel/patches
+		git am -q -3 $p/armbian-s5p6818-7.2/0*.patch
+		git apply --index $p/armbian-s5p6818-7.2/general-*.patch
+		git commit -qm "Armbian: general patches"
+		git tag armbian-base
+		git apply $p/artik710/*.patch
+		git log --oneline | wc -l; git status --short'
+	;;
+build)
+	[ $# -gt 0 ] || set -- Image dtbs modules modules_install
+	mkdir -p out/boot
+	run sh -ec "$sync"'
+		[ /src/out/.config -nt arch/arm64/configs/artik710_defconfig ] || '"$make"' artik710_defconfig
+		# no modules of an earlier configuration in the root filesystem
+		case " $* " in *" modules_install "*) rm -rf /src/mods ;; esac
+		'"$make"' "$@"
+		cd /src/out/arch/arm64/boot
+		for f in Image dts/nexell/s5p6818-artik710*.dtb; do
+			[ ! -e "$f" ] || cp "$f" /work/out/boot/
+		done
+		ls -l /work/out/boot' sh "$@"
+	;;
+sh)
+	if [ $# -eq 0 ]; then TTY=1 run bash; else run "$@"; fi
+	;;
+pull)
+	for f; do mkdir -p "kernel/work/$(dirname "$f")"; done
+	run sh -ec 'for f; do cp -p "$f" "/work/kernel/work/$f"; done' sh "$@"
+	;;
+export)
+	mkdir -p kernel/patches/artik710
+	# The TLB workaround is for every S5P6818 board, so it gets a patch of its own.
+	run sh -ec "$sync"'
+		p=/work/kernel/patches/artik710
+		tlb="arch/arm64/Kconfig arch/arm64/kvm/Kconfig arch/arm64/include/asm/tlbflush.h"
+		git diff armbian-base -- $tlb > $p/0001-arm64-cci400-dvmv7-tlb-workaround.patch
+		git diff armbian-base -- . $(printf ":!%s " $tlb) > $p/0002-artik710.patch
+		git diff --stat armbian-base'
+	;;
+*)
+	sed -n '2,/^set -e/p' "$0" | sed '$d; s/^# \{0,1\}//'
+	;;
+esac
