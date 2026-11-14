@@ -1,0 +1,43 @@
+name: PR build comment
+
+# Runs in the context of this repository, also for pull requests from forks:
+# it must not check out or run anything from the pull request.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD: ${{ github.event.workflow_run.head_repository.owner.login }}:${{ github.event.workflow_run.head_branch }}
+        run: |
+          # The pull request this run was for, unless it has moved on since.
+          pr=$(gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f head="$HEAD" \
+            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | head -1)
+          [ -n "$pr" ] || { echo "no open pull request at $HEAD_SHA"; exit 0; }
+          a=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name == "artik710-ubuntu") | "\(.id) \(.size_in_bytes / 1048576 | floor)"')
+          [ -n "$a" ] || { echo "the run has no artifact"; exit 1; }
+          url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID
+          cat > body.md <<EOF
+          Lint, tests and the build passed for $HEAD_SHA.
+
+          Build output: [artik710-ubuntu.zip]($url/artifacts/${a% *}) (${a#* } MB, [run]($url)). Downloading it needs a GitHub login.
+
+          The archive has \`Image\`, \`s5p6818-artik710-raptor.dtb\`, \`uInitrd\`, \`rootfs.ext4.xz\`, \`install.sh\` and \`SHA256SUMS\`. To try it, unpack it on the board and run \`sh install.sh\` as root: see "Install" in the README.
+          EOF
+          gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --edit-last --body-file body.md ||
+            gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body-file body.md

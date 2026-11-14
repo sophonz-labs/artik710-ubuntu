@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -q -t artik710-builder docker/builder
+      - run: tools/check lint
+
+  test:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -q -t artik710-builder docker/builder
+      - run: tools/check test
+
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    env:
+      ARTIK_CCACHE: ${{ github.workspace }}/.ccache
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache/restore@v6
+        with:
+          path: .ccache
+          key: ccache-${{ github.run_id }}
+          restore-keys: ccache-
+      - run: docker build -q -t artik710-builder docker/builder
+      - run: tools/kernel setup
+      - run: tools/kernel build
+      - run: tools/mk-initramfs
+      - run: tools/mk-rootfs
+      - run: tools/mk-release
+      - run: |
+          { echo '```'; cat out/release/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: artik710-ubuntu
+          path: out/release/*
+          compression-level: 0
+          if-no-files-found: error
+      # One cache per run of main is enough: pull requests read it.
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: .ccache
+          key: ccache-${{ github.run_id }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, build]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: artik710-ubuntu
+          path: release
+      - run: gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
