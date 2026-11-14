@@ -494,6 +494,14 @@
 		nexell,pin-pull = <1>;
 		nexell,pin-strength = <0>;
 	};
+
+	/* BT_REG_ON of the BCM43455 as an output at low level */
+	bt_reg_off: bt-reg-off {
+		nexell,pins = "gpiod-29";
+		nexell,pin-function = <0>;	/* GPIO */
+		nexell,pin-dir = <1>;
+		nexell,pin-val = <0>;
+	};
 };
 
 /*
@@ -644,9 +652,20 @@
 	status = "okay";
 };
 
-/* WL_REG_ON of the BCM43455 is GPIOD28 on this module. */
+/*
+ * WL_REG_ON of the BCM43455 is GPIOD28 on this module.
+ *
+ * WL_REG_ON and BT_REG_ON have pull-ups, so the chip keeps its power through a
+ * reset of the SoC, and it only starts afresh when both lines are low at the
+ * same time. Without that, the WiFi firmware and the Bluetooth part do not
+ * find the addresses in the chip's OTP after a reboot and come up with their
+ * default addresses. So BT_REG_ON goes low here, before WL_REG_ON is pulsed;
+ * the Bluetooth driver takes the line over later.
+ */
 &wifi_pwrseq {
 	reset-gpios = <&gpio_d 28 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&bt_reg_off>;
 };
 
 /* PLL0 / 8 is the 100 MHz for a card clock of 50 MHz. Not the PLL of the CPUs. */
