@@ -743,6 +743,20 @@ index ee412e6b84d6..2549ad38a08d 100644
  obj-$(CONFIG_MMC_DW_PCI)	+= dw_mmc-pci.o
  obj-$(CONFIG_MMC_DW_ROCKCHIP)	+= dw_mmc-rockchip.o
  obj-$(CONFIG_MMC_DW_STARFIVE)	+= dw_mmc-starfive.o
+diff --git a/drivers/pinctrl/nexell/pinctrl-nexell.c b/drivers/pinctrl/nexell/pinctrl-nexell.c
+index f210836fef95..4e98cca14454 100644
+--- a/drivers/pinctrl/nexell/pinctrl-nexell.c
++++ b/drivers/pinctrl/nexell/pinctrl-nexell.c
+@@ -40,6 +40,9 @@ static struct pin_config {
+ } cfg_params[] = {
+ 	{"nexell,pin-pull", PINCFG_TYPE_PULL},
+ 	{"nexell,pin-strength", PINCFG_TYPE_DRV},
++	/* a GPIO that has to be at a level before a driver takes it */
++	{"nexell,pin-dir", PINCFG_TYPE_DIR},
++	{"nexell,pin-val", PINCFG_TYPE_DAT},
+ };
+ 
+ /* Global list of devices (struct nexell_pinctrl_drv_data) */
 diff --git a/drivers/power/reset/nexell-restart.c b/drivers/power/reset/nexell-restart.c
 index 4617fd89e82f..c48e86865000 100644
 --- a/drivers/power/reset/nexell-restart.c
