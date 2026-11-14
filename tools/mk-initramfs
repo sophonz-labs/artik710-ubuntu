@@ -1,0 +1,70 @@
+#!/bin/sh
+# Build the busybox initramfs, wrapped for U-Boot: out/boot/uInitrd.
+#
+# Its /init goes on with what it finds on the root= device of the kernel
+# command line (the stock U-Boot passes root=/dev/mmcblk0p7):
+#   /root/ubuntu-26.04.img.xz   is written over the whole device, which is then
+#                               the root filesystem (tools/install.sh --erase)
+#   /root/ubuntu-26.04.img      the system in this image is started; the device
+#                               itself, with the stock system, ends up on /mnt
+#   neither                     the device is the root filesystem
+# Without root=, or if that does not work: a shell on the console.
+set -e
+cd "$(dirname "$0")/.."
+mkdir -p out/boot
+docker run --rm -v "$PWD":/work artik710-builder sh -ec '
+	d=$(mktemp -d) && cd "$d"
+	mkdir -p bin proc sys dev tmp host newroot
+	cp "$(command -v busybox)" bin/busybox
+	for a in $(bin/busybox --list); do [ -e "bin/$a" ] || ln -s busybox "bin/$a"; done
+	[ -e bin/devmem ] && [ -e bin/cttyhack ] && [ -e bin/switch_root ] && [ -e bin/xz ]
+	mknod -m 600 dev/console c 5 1
+	cat > init <<"EOF"
+#!/bin/sh
+export PATH=/bin
+set -o pipefail
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+# tools/artik-testboot arms the watchdog in U-Boot
+devmem 0xc0019000 32 0xff1c
+
+for a in $(cat /proc/cmdline); do
+	case $a in root=*) root=${a#root=} ;; esac
+done
+img=/host/root/ubuntu-26.04.img
+
+if [ -n "$root" ]; then
+	# the eMMC is probed in the background
+	n=0
+	until [ -b "$root" ] || [ $n -ge 50 ]; do sleep 0.1; n=$((n + 1)); done
+	mount "$root" /host
+	if [ -e $img.xz ]; then
+		echo "== Writing the new system to $root: do not switch off =="
+		# The copy in memory is checked before the device is touched.
+		mount -t tmpfs -o size=75% tmpfs /tmp && cp $img.xz /tmp/img.xz &&
+			xz -t /tmp/img.xz && umount /host &&
+			xz -dc /tmp/img.xz | dd of="$root" bs=1M conv=fsync &&
+			mount "$root" /host
+		umount /tmp
+	fi
+	if [ -e $img.xz ]; then
+		echo "the new system was not written"
+		false
+	elif [ -e $img ]; then
+		mount -o loop $img /newroot && mount -o move /host /newroot/mnt
+	else
+		mount -o move /host /newroot
+	fi && exec switch_root /newroot /sbin/init
+	echo "cannot start the system on root=$root"
+fi
+
+echo "== artik710 initramfs shell, $(uname -r) =="
+while :; do setsid cttyhack sh; done
+EOF
+	chmod +x init
+	find . | cpio -o -H newc --quiet | gzip -9 > /tmp/initramfs.cpio.gz
+	mkimage -A arm64 -O linux -T ramdisk -C none -n "artik710 initramfs" \
+		-d /tmp/initramfs.cpio.gz /work/out/boot/uInitrd >/dev/null
+'
+ls -l out/boot/uInitrd
