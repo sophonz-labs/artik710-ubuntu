@@ -49,7 +49,8 @@ if [ -n "$root" ]; then
 	h=BCM4345C0.samsung,artik710-raptor.hcd
 	{
 		cp /host/etc/wifi/nvram.txt /fw/$w
-		cp /host/etc/bluetooth/BCM4345C0*.hcd /fw/$h
+		# of several versions, the last in the alphabet: the newest
+		for f in /host/etc/bluetooth/BCM4345C0*.hcd; do cp "$f" /fw/$h; done
 		cp /host/$b/$w /host/$b/$h /fw/
 	} 2>/dev/null
 	if [ -e $img.xz ]; then
