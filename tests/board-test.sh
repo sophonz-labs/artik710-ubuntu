@@ -2,8 +2,9 @@
 # Check the hardware interfaces of an ARTIK710 Raptor board from the running
 # system. Run it as root. Nothing has to be plugged in: what cannot be seen
 # without a cable, a card or a hand on the board is reported as "skip".
-# The Zigbee check resets the Zigbee chip, the SPI check sends data on SPI2 and
-# the PWM check runs output 2 (GPIOC14) for a moment.
+# The Zigbee check resets the Zigbee chip, the SPI check sends data on SPI2, the
+# PWM check runs output 2 (GPIOC14) for a moment and the audio check plays two
+# seconds of silence.
 #
 #   board-test             every check
 #   board-test uart i2c    only these
@@ -164,6 +165,54 @@ t_pwm() {
 	fi
 }
 
+t_hdmi() {
+	c=$(echo /sys/class/drm/card*-HDMI-A-1)
+	has "$c/status" "hdmi: connector"
+	case $(cat "$c/status" 2>/dev/null) in
+	connected) ok "hdmi: monitor, $(head -n 1 "$c/modes")" ;;
+	disconnected) skip "hdmi: no monitor on it" ;;
+	esac
+}
+
+# interrupts of the GPU so far
+gpu_irqs() {
+	awk '/gpmmu/ { for (i = 2; i <= 9; i++) s += $i; print s + 0 }' /proc/interrupts
+}
+
+t_gpu() {
+	has /sys/bus/platform/drivers/lima/c0070000.gpu "gpu: Mali-400 with the lima driver"
+	# Mesa is not in the image.
+	command -v peglgears >/dev/null ||
+		{ skip "gpu rendering: apt install mesa-utils libgl1-mesa-dri libegl-mesa0"; return; }
+	n=$(gpu_irqs)
+	# draws for 5 s, into memory
+	o=$(EGL_PLATFORM=surfaceless peglgears 2>&1 | tail -n 1)
+	if [ "$(gpu_irqs)" -gt "$n" ]; then ok "gpu: $o"; else bad "gpu: it drew nothing ($o)"; fi
+}
+
+t_audio() {
+	if grep -qs S5P6818-HDMI /proc/asound/cards; then
+		a=$(date +%s%N)
+		if aplay -q -D hw:CARD=S5P6818HDMI -t raw -f S16_LE -r 48000 -c 2 -d 2 /dev/zero 2>/dev/null; then
+			a=$((($(date +%s%N) - a) / 1000000))
+			if [ $a -gt 1800 ] && [ $a -lt 2400 ]; then
+				ok "audio: the HDMI card plays at the right speed"
+			else
+				bad "audio: the HDMI card took $a ms for 2 s of sound"
+			fi
+		else
+			bad "audio: the HDMI card does not play"
+		fi
+	else
+		bad "audio: no HDMI sound card"
+	fi
+	if grep -qs RT5658 /proc/asound/cards; then
+		ok "audio: card of the codec"
+	else
+		skip "audio jacks: no codec answers"
+	fi
+}
+
 t_keys() {
 	if grep -qs gpio-keys /proc/bus/input/devices; then
 		ok "keys: input device"
@@ -185,7 +234,7 @@ t_watchdog() {
 	has /dev/watchdog0 "watchdog"
 }
 
-all="cpu storage net usb wifi bluetooth uart zigbee i2c adc spi pwm keys rtc watchdog"
+all="cpu storage net usb wifi bluetooth uart zigbee i2c adc spi pwm hdmi gpu audio keys rtc watchdog"
 [ $# -gt 0 ] || set -- $all
 for t; do
 	case " $all " in
