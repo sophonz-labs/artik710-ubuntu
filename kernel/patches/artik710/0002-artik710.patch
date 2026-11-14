@@ -393,6 +393,39 @@ index 4617fd89e82f..c48e86865000 100644
  
  	ret = register_restart_handler(&priv->nb);
  	if (ret) {
+diff --git a/drivers/pwm/pwm-samsung.c b/drivers/pwm/pwm-samsung.c
+index 2af52dcf88d5..d6afda8a6052 100644
+--- a/drivers/pwm/pwm-samsung.c
++++ b/drivers/pwm/pwm-samsung.c
+@@ -19,6 +19,7 @@
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/pwm.h>
++#include <linux/reset.h>
+ #include <linux/slab.h>
+ #include <linux/spinlock.h>
+ #include <linux/time.h>
+@@ -543,6 +544,7 @@ static int pwm_samsung_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct samsung_pwm_chip *our_chip;
++	struct reset_control *rst;
+ 	struct pwm_chip *chip;
+ 	unsigned int chan;
+ 	int ret;
+@@ -572,6 +574,12 @@ static int pwm_samsung_probe(struct platform_device *pdev)
+ 	if (IS_ERR(our_chip->base))
+ 		return PTR_ERR(our_chip->base);
+ 
++	/* Nexell S5P6818: release the block's optional reset line. */
++	rst = devm_reset_control_get_optional_exclusive_deasserted(dev, NULL);
++	if (IS_ERR(rst))
++		return dev_err_probe(dev, PTR_ERR(rst),
++				     "failed to release reset\n");
++
+ 	our_chip->base_clk = devm_clk_get_enabled(&pdev->dev, "timers");
+ 	if (IS_ERR(our_chip->base_clk))
+ 		return dev_err_probe(dev, PTR_ERR(our_chip->base_clk),
 diff --git a/drivers/reset/Kconfig b/drivers/reset/Kconfig
 index d009eb0849a3..60c80d0751b7 100644
 --- a/drivers/reset/Kconfig
@@ -406,6 +439,70 @@ index d009eb0849a3..60c80d0751b7 100644
  	depends on HAS_IOMEM
  	help
  	  This enables a simple reset controller driver for reset lines that
+diff --git a/drivers/spi/spi-s3c64xx.c b/drivers/spi/spi-s3c64xx.c
+index 28c56b06fa99..3606d5889472 100644
+--- a/drivers/spi/spi-s3c64xx.c
++++ b/drivers/spi/spi-s3c64xx.c
+@@ -17,6 +17,7 @@
+ #include <linux/platform_data/spi-s3c64xx.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
++#include <linux/reset.h>
+ #include <linux/spi/spi.h>
+ #include <linux/types.h>
+ 
+@@ -1249,6 +1250,7 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
+ 	struct s3c64xx_spi_driver_data *sdd;
+ 	struct s3c64xx_spi_info *sci = dev_get_platdata(&pdev->dev);
+ 	struct spi_controller *host;
++	struct reset_control *rst;
+ 	int ret, irq;
+ 	char clk_name[16];
+ 
+@@ -1325,6 +1327,15 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
+ 		return dev_err_probe(&pdev->dev, -EBUSY,
+ 				     "Unable to config gpio\n");
+ 
++	/* Nexell S5P6818: the boot loader leaves the SPI blocks in reset. */
++	rst = devm_reset_control_array_get_optional_exclusive(&pdev->dev);
++	if (IS_ERR(rst))
++		return dev_err_probe(&pdev->dev, PTR_ERR(rst),
++				     "Unable to get resets\n");
++	ret = reset_control_deassert(rst);
++	if (ret)
++		return ret;
++
+ 	/* Setup clocks */
+ 	sdd->clk = devm_clk_get_enabled(&pdev->dev, "spi");
+ 	if (IS_ERR(sdd->clk))
+@@ -1611,6 +1622,17 @@ static const struct s3c64xx_spi_port_config gs101_spi_port_config = {
+ 	.quirks		= S3C64XX_SPI_QUIRK_CS_AUTO,
+ };
+ 
++/* Same values as the vendor kernel's s5p6818_spi_port_config. */
++static const struct s3c64xx_spi_port_config s5p6818_spi_port_config = {
++	.fifo_depth	= 256,
++	.rx_fifomask	= S3C64XX_SPI_ST_RX_FIFO_RDY_V2,
++	.tx_fifomask	= S3C64XX_SPI_ST_TX_FIFO_RDY_V2,
++	.tx_st_done	= 25,
++	.clk_div	= 2,
++	.high_speed	= true,
++	.clk_from_cmu	= true,
++};
++
+ static const struct platform_device_id s3c64xx_spi_driver_ids[] = {
+ 	{
+ 		.name = "s3c6410-spi",
+@@ -1648,6 +1670,9 @@ static const struct of_device_id s3c64xx_spi_dt_match[] = {
+ 	{ .compatible = "tesla,fsd-spi",
+ 			.data = &fsd_spi_port_config,
+ 	},
++	{ .compatible = "nexell,s5p6818-spi",
++			.data = &s5p6818_spi_port_config,
++	},
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(of, s3c64xx_spi_dt_match);
 diff --git a/drivers/usb/host/ehci-platform.c b/drivers/usb/host/ehci-platform.c
 index f61f095cedab..598df5eec7c6 100644
 --- a/drivers/usb/host/ehci-platform.c
