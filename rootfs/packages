@@ -21,6 +21,7 @@ gpiod
 wpasupplicant
 iw
 wireless-regdb
+linux-firmware-broadcom-wireless
 bluez
 rfkill
 alsa-utils
