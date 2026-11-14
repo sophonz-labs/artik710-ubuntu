@@ -108,7 +108,12 @@ class Console:
         self.ser.close()
 
     def pump(self):
-        data = self.ser.read(4096)
+        try:
+            data = self.ser.read(4096)
+        except OSError:
+            # While the board resets, the port can read as ready but empty.
+            time.sleep(0.05)
+            data = b""
         if data:
             self.buf += data
             self.log.write(data)
