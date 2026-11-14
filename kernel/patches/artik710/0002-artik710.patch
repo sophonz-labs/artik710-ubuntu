@@ -20,7 +20,7 @@ index 93907737d1b4..0c527bca386e 100644
  dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-nanopi-fire3.dtb
 +dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-artik710-raptor.dtb
 diff --git a/arch/arm64/boot/dts/nexell/s5p6818.dtsi b/arch/arm64/boot/dts/nexell/s5p6818.dtsi
-index b83f22cf1f5d..752a4945172d 100644
+index b83f22cf1f5d..27811c41ae9c 100644
 --- a/arch/arm64/boot/dts/nexell/s5p6818.dtsi
 +++ b/arch/arm64/boot/dts/nexell/s5p6818.dtsi
 @@ -418,6 +418,48 @@ sdmmc1_bus4: sdmmc1-bus4 {
@@ -72,7 +72,7 @@ index b83f22cf1f5d..752a4945172d 100644
  			/* UART1 (Bluetooth): TXD gpiod-15, RXD gpiod-19 (fn1). */
  			serial1_pins: serial1-pins {
  				nexell,pins = "gpiod-15", "gpiod-19";
-@@ -432,6 +474,25 @@ serial1_flow: serial1-flow {
+@@ -432,6 +474,47 @@ serial1_flow: serial1-flow {
  				nexell,pin-pull = <2>;
  				nexell,pin-strength = <0>;
  			};
@@ -95,10 +95,32 @@ index b83f22cf1f5d..752a4945172d 100644
 +				nexell,pin-pull = <2>;
 +				nexell,pin-strength = <0>;
 +			};
++
++			spi0_bus: spi0-bus {
++				nexell,pins = "gpioc-29", "gpioc-30", "gpioc-31",
++					      "gpiod-0";
++				nexell,pin-function = <1>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <0>;
++			};
++			spi1_bus: spi1-bus {
++				nexell,pins = "gpioe-14", "gpioe-15", "gpioe-18",
++					      "gpioe-19";
++				nexell,pin-function = <2>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <0>;
++			};
++			spi2_bus: spi2-bus {
++				nexell,pins = "gpioc-9", "gpioc-10", "gpioc-11",
++					      "gpioc-12";
++				nexell,pin-function = <2>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <1>;
++			};
  		};
  
  		gic: interrupt-controller@c0009000 {
-@@ -494,6 +555,37 @@ uart1: serial@c00a0000 {
+@@ -494,6 +577,37 @@ uart1: serial@c00a0000 {
  			status = "disabled";
  		};
  
@@ -136,7 +158,7 @@ index b83f22cf1f5d..752a4945172d 100644
  		mmc0: mmc@c0062000 {
  			compatible = "snps,dw-mshc";
  			reg = <0xc0062000 0x1000>;
-@@ -729,6 +821,32 @@ sdhc1_clk: sdhc1-clk@c00cc000 {
+@@ -729,6 +843,32 @@ sdhc1_clk: sdhc1-clk@c00cc000 {
  				#clock-cells = <0>;
  			};
  
@@ -169,7 +191,7 @@ index b83f22cf1f5d..752a4945172d 100644
  			/*
  			 * UART1 module clock (clk-gen @0xc00a8000, cell-id 24 =
  			 * CLK_ID_UART_1) for the Bluetooth UART. u-boot only uses the
-@@ -745,6 +863,49 @@ uart1_clk: uart1-clk@c00a8000 {
+@@ -745,6 +885,79 @@ uart1_clk: uart1-clk@c00a8000 {
  				nexell,clk-critical;
  				#clock-cells = <0>;
  			};
@@ -216,10 +238,40 @@ index b83f22cf1f5d..752a4945172d 100644
 +				clock-frequency = <147500000>;
 +				#clock-cells = <0>;
 +			};
++
++			/*
++			 * SPI: from PLL2 only (PLL1 is the PLL of the CPUs).
++			 * The driver sets the rate, twice the bus clock, for
++			 * every transfer.
++			 */
++			spi0_clk: spi0-clk@c00ac000 {
++				reg = <0xc00ac000 0x100>;
++				clock-output-names = "spi0";
++				cell-id = <37>;
++				clk-step = <1>;
++				clk-input = <0x4>;
++				#clock-cells = <0>;
++			};
++			spi1_clk: spi1-clk@c00ad000 {
++				reg = <0xc00ad000 0x100>;
++				clock-output-names = "spi1";
++				cell-id = <38>;
++				clk-step = <1>;
++				clk-input = <0x4>;
++				#clock-cells = <0>;
++			};
++			spi2_clk: spi2-clk@c00a7000 {
++				reg = <0xc00a7000 0x100>;
++				clock-output-names = "spi2";
++				cell-id = <39>;
++				clk-step = <1>;
++				clk-input = <0x4>;
++				#clock-cells = <0>;
++			};
  		};
  
  		/*
-@@ -840,7 +1001,7 @@ usb2_phy: usb-phy@c0011000 {
+@@ -840,7 +1053,7 @@ usb2_phy: usb-phy@c0011000 {
  
  		/* USB2 EHCI host (high speed). Two type-A ports. */
  		ehci: usb@c0030000 {
@@ -228,10 +280,80 @@ index b83f22cf1f5d..752a4945172d 100644
  			reg = <0xc0030000 0x10000>;
  			interrupts = <GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>;
  			clocks = <&usbhost_clk>;
-@@ -1030,6 +1191,22 @@ pwm: pwm@c0018000 {
+@@ -1025,11 +1238,92 @@ pwm: pwm@c0018000 {
+ 			reg = <0xc0018000 0x1000>;
+ 			clocks = <&pwm_pclk>;
+ 			clock-names = "timers";
++			resets = <&nexell_reset 37>;	/* RESET_ID_PWM */
+ 			samsung,pwm-outputs = <0>, <1>, <2>, <3>;
+ 			#pwm-cells = <3>;
  			status = "disabled";
  		};
  
++		/* ADC: 8 channels, 12 bits, clocked by PCLK */
++		adc: adc@c0053000 {
++			compatible = "nexell,s5p6818-adc";
++			reg = <0xc0053000 0x1000>;
++			interrupts = <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&pwm_timer_clk>;	/* PCLK */
++			resets = <&nexell_reset 60>;	/* RESET_ID_ADC */
++			#io-channel-cells = <1>;
++			status = "disabled";
++		};
++
++		/*
++		 * SPI: the Samsung controller of the S3C64xx kind. Each has
++		 * two reset lines (RESET_ID_SSPn_P and RESET_ID_SSPn), which
++		 * the boot loader leaves asserted.
++		 */
++		spi0: spi@c005b000 {
++			compatible = "nexell,s5p6818-spi";
++			reg = <0xc005b000 0x100>;
++			interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
++			dmas = <&dma0 6 0>, <&dma0 7 0>;
++			dma-names = "tx", "rx";
++			clocks = <&spi0_clk>, <&spi0_clk>;
++			clock-names = "spi", "spi_busclk0";
++			resets = <&nexell_reset 44>, <&nexell_reset 45>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&spi0_bus>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
++		spi1: spi@c005c000 {
++			compatible = "nexell,s5p6818-spi";
++			reg = <0xc005c000 0x100>;
++			interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
++			dmas = <&dma0 8 0>, <&dma0 9 0>;
++			dma-names = "tx", "rx";
++			clocks = <&spi1_clk>, <&spi1_clk>;
++			clock-names = "spi", "spi_busclk0";
++			resets = <&nexell_reset 46>, <&nexell_reset 47>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&spi1_bus>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
++		spi2: spi@c005f000 {
++			compatible = "nexell,s5p6818-spi";
++			reg = <0xc005f000 0x100>;
++			interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
++			dmas = <&dma0 10 0>, <&dma0 11 0>;
++			dma-names = "tx", "rx";
++			clocks = <&spi2_clk>, <&spi2_clk>;
++			clock-names = "spi", "spi_busclk0";
++			resets = <&nexell_reset 48>, <&nexell_reset 49>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&spi2_bus>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
 +		/*
 +		 * Watchdog, the S3C type with a quirk (see the driver). Its two
 +		 * reset lines (58 and 59) are not handled by the driver: the

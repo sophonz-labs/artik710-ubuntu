@@ -32,6 +32,10 @@
 		mmc1 = &mmc0;
 		mmc2 = &mmc1;
 		/* Also as in the stock system, which has no bus 3. */
+		/* SPI2 is the one on the header: /dev/spidev2.0 as before */
+		spi0 = &spi0;
+		spi1 = &spi1;
+		spi2 = &spi2;
 		i2c0 = &i2c_0;
 		i2c1 = &i2c_1;
 		i2c2 = &i2c_2;
@@ -341,6 +345,41 @@
 };
 
 &watchdog {
+	status = "okay";
+};
+
+&adc {
+	status = "okay";
+};
+
+/* On the header, for user space */
+&spi2 {
+	cs-gpios = <&gpio_c 10 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	spidev@0 {
+		/* spidev wants the name of a chip: this one stands in */
+		compatible = "rohm,dh2228fv";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+
+		controller-data {
+			samsung,spi-feedback-delay = <0>;
+		};
+	};
+};
+
+/*
+ * Outputs 0 to 2, as in the stock system, which has the backlight of a panel
+ * on 0 and the clock of the secure element (S3T9MF) on 1. The system timer is
+ * another block.
+ */
+&pwm {
+	/* PCLK: the counters were measured to run at 200 MHz / (prescaler + 1) */
+	clocks = <&pwm_timer_clk>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm0_pins &pwm1_pins &pwm2_pins>;
+	samsung,pwm-outputs = <0>, <1>, <2>;
 	status = "okay";
 };
 
