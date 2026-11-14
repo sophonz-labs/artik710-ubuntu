@@ -677,6 +677,11 @@
 &mmc1 {
 	compatible = "nexell,s5p6818-dw-mshc";
 	clocks = <&sdhc1_clk>, <&sdhc1_clk>;
+	/*
+	 * How long WL_REG_ON stays low before the chip starts, and the wait
+	 * after it: the 200 ms of the stock kernel.
+	 */
+	post-power-on-delay-ms = <200>;
 	status = "okay";
 };
 
