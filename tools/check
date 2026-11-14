@@ -3,8 +3,8 @@
 #   tools/check lint   shellcheck and actionlint, the Python tool compiles, the
 #                      C tests build without a warning
 #   tools/check test   tools/install.sh against an image file; the coherency
-#                      tests, which have to pass on a sound machine; the
-#                      self-check of the Zigbee test
+#                      and load tests, which have to pass on a sound machine;
+#                      the self-check of the Zigbee test
 #   tools/check        both
 set -e
 cd "$(dirname "$0")/.."
@@ -23,6 +23,7 @@ case ${1:-test} in test)
 		sh tests/install-test.sh
 		for c in tests/*.c; do gcc -O2 -static -pthread -o "out/tests/$(basename "$c" .c)" "$c"; done
 		out/tests/smp-coherency 20
+		out/tests/cpu-load 2
 		out/tests/zigbee-ash -t
 		sh tests/stress-integrity.sh 2'
 	# reclaim needs a memory limit well below the size of the file

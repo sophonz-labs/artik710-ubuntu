@@ -2,9 +2,9 @@
 # Check the hardware interfaces of an ARTIK710 Raptor board from the running
 # system. Run it as root. Nothing has to be plugged in: what cannot be seen
 # without a cable, a card or a hand on the board is reported as "skip".
-# The Zigbee check resets the Zigbee chip, the SPI check sends data on SPI2, the
-# PWM check runs output 2 (GPIOC14) for a moment and the audio check plays two
-# seconds of silence.
+# The CPU check loads all CPUs for three seconds, the Zigbee check resets the
+# Zigbee chip, the SPI check sends data on SPI2, the PWM check runs output 2
+# (GPIOC14) for a moment and the audio check plays two seconds of silence.
 #
 #   board-test             every check
 #   board-test uart i2c    only these
@@ -28,6 +28,14 @@ t_cpu() {
 	else
 		bad "thermal: reads $t"
 	fi
+	p=/sys/devices/system/cpu/cpufreq/policy0
+	if [ "$(cat $p/scaling_driver 2>/dev/null)" = cpufreq-dt ]; then
+		ok "cpufreq: $(($(cat $p/cpuinfo_min_freq) / 1000)) to $(($(cat $p/cpuinfo_max_freq) / 1000)) MHz"
+	else
+		bad "cpufreq: no driver"
+	fi
+	# The governor takes the CPUs to the highest frequency for this.
+	if o=$(cpu-load 3); then ok "cpu: load with checked results"; else bad "$o"; fi
 }
 
 t_storage() {
