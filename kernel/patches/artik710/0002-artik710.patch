@@ -263,6 +263,40 @@ index 1dbb0ef39a0d..a82c3ffe2e6d 100644
  	help
  	  Atomic-KMS driver for the Nexell S5Pxx18 display controller (DPC/MLC)
  	  and HDMI output. Work in progress: a single fixed-mode CRTC/plane that
+diff --git a/drivers/iio/adc/Kconfig b/drivers/iio/adc/Kconfig
+index c6d3cf68b1f7..9ab46247b1ea 100644
+--- a/drivers/iio/adc/Kconfig
++++ b/drivers/iio/adc/Kconfig
+@@ -1267,6 +1267,17 @@ config NCT7201
+ 	  This driver can also be built as a module. If so, the module
+ 	  will be called nct7201.
+ 
++config NEXELL_ADC
++	tristate "Nexell S5P6818 ADC"
++	depends on ARCH_NEXELL || COMPILE_TEST
++	depends on HAS_IOMEM && OF
++	help
++	  Say yes here to build support for the 8 channel ADC of the Nexell
++	  S5P6818 SoC. Channels are read one at a time through IIO sysfs.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called nexell_adc.
++
+ config NPCM_ADC
+ 	tristate "Nuvoton NPCM ADC driver"
+ 	depends on ARCH_NPCM || COMPILE_TEST
+diff --git a/drivers/iio/adc/Makefile b/drivers/iio/adc/Makefile
+index 707dd708912f..500813c45267 100644
+--- a/drivers/iio/adc/Makefile
++++ b/drivers/iio/adc/Makefile
+@@ -110,6 +110,7 @@ obj-$(CONFIG_MP2629_ADC) += mp2629_adc.o
+ obj-$(CONFIG_MXS_LRADC_ADC) += mxs-lradc-adc.o
+ obj-$(CONFIG_NAU7802) += nau7802.o
+ obj-$(CONFIG_NCT7201) += nct7201.o
++obj-$(CONFIG_NEXELL_ADC) += nexell_adc.o
+ obj-$(CONFIG_NPCM_ADC) += npcm_adc.o
+ obj-$(CONFIG_NXP_SAR_ADC) += nxp-sar-adc.o
+ obj-$(CONFIG_PAC1921) += pac1921.o
 diff --git a/drivers/mfd/rn5t618.c b/drivers/mfd/rn5t618.c
 index 23ca00d2c624..8fc9298e5068 100644
 --- a/drivers/mfd/rn5t618.c
