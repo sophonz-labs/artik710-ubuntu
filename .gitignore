@@ -1,0 +1,7 @@
+backup/
+*.img
+*.tar.zst
+.DS_Store
+logs/
+out/
+kernel/work/
