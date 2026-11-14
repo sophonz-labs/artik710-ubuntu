@@ -47,6 +47,25 @@ t_net() {
 	fi
 }
 
+t_usb() {
+	# The sockets are behind the hub on the HSIC port.
+	h=$(grep -lsx 3503 /sys/bus/usb/devices/*/idProduct | head -n 1)
+	if [ -n "$h" ]; then
+		ok "usb: hub on the HSIC port"
+		set -- "${h%/*}"/*/idProduct
+		if [ -e "$1" ]; then
+			ok "usb sockets: $# device(s)"
+		else
+			skip "usb sockets: nothing plugged in"
+		fi
+	else
+		bad "usb: no hub (0424:3503)"
+	fi
+	u=/sys/class/udc/c0040000.usb
+	has $u "usb: OTG port as a device"
+	[ "$(cat $u/state 2>/dev/null)" = configured ] || skip "usb OTG port: no host on it"
+}
+
 t_uart() {
 	# ttySAC3 is the console and ttySAC1 belongs to Bluetooth.
 	for n in 0 2 4; do
@@ -92,7 +111,7 @@ t_watchdog() {
 	has /dev/watchdog0 "watchdog"
 }
 
-all="cpu storage net uart i2c keys rtc watchdog"
+all="cpu storage net usb uart i2c keys rtc watchdog"
 [ $# -gt 0 ] || set -- $all
 for t; do
 	case " $all " in
