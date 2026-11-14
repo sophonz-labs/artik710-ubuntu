@@ -1,0 +1,348 @@
+diff --git a/arch/arm64/boot/dts/nexell/Makefile b/arch/arm64/boot/dts/nexell/Makefile
+index 93907737d1b4..0c527bca386e 100644
+--- a/arch/arm64/boot/dts/nexell/Makefile
++++ b/arch/arm64/boot/dts/nexell/Makefile
+@@ -1,3 +1,4 @@
+ # SPDX-License-Identifier: GPL-2.0
+ dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-nanopi-m3.dtb
+ dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-nanopi-fire3.dtb
++dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-artik710-raptor.dtb
+diff --git a/arch/arm64/boot/dts/nexell/s5p6818.dtsi b/arch/arm64/boot/dts/nexell/s5p6818.dtsi
+index b83f22cf1f5d..edda664c9278 100644
+--- a/arch/arm64/boot/dts/nexell/s5p6818.dtsi
++++ b/arch/arm64/boot/dts/nexell/s5p6818.dtsi
+@@ -418,6 +418,48 @@ sdmmc1_bus4: sdmmc1-bus4 {
+ 				nexell,pin-strength = <1>;
+ 			};
+ 
++			/* SDMMC0: CLK/CMD (bank A), DAT0-3 (bank B), function 1. */
++			sdmmc0_cclk: sdmmc0-cclk {
++				nexell,pins = "gpioa-29";
++				nexell,pin-function = <1>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <2>;
++			};
++			sdmmc0_cmd: sdmmc0-cmd {
++				nexell,pins = "gpioa-31";
++				nexell,pin-function = <1>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <1>;
++			};
++			sdmmc0_bus4: sdmmc0-bus4 {
++				nexell,pins = "gpiob-1", "gpiob-3",
++					      "gpiob-5", "gpiob-7";
++				nexell,pin-function = <1>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <1>;
++			};
++
++			/* SDMMC2: CLK/CMD/DAT0-3 (bank C, function 2). */
++			sdmmc2_cclk: sdmmc2-cclk {
++				nexell,pins = "gpioc-18";
++				nexell,pin-function = <2>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <2>;
++			};
++			sdmmc2_cmd: sdmmc2-cmd {
++				nexell,pins = "gpioc-19";
++				nexell,pin-function = <2>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <1>;
++			};
++			sdmmc2_bus4: sdmmc2-bus4 {
++				nexell,pins = "gpioc-20", "gpioc-21",
++					      "gpioc-22", "gpioc-23";
++				nexell,pin-function = <2>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <1>;
++			};
++
+ 			/* UART1 (Bluetooth): TXD gpiod-15, RXD gpiod-19 (fn1). */
+ 			serial1_pins: serial1-pins {
+ 				nexell,pins = "gpiod-15", "gpiod-19";
+@@ -494,6 +536,37 @@ uart1: serial@c00a0000 {
+ 			status = "disabled";
+ 		};
+ 
++		/* UART2-4: same block, each with its own clk-gen and reset. */
++		uart2: serial@c00a2000 {
++			compatible = "nexell,s5p6818-uart";
++			reg = <0xc00a2000 0x1000>;
++			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&uart2_clk>, <&uart2_clk>;
++			clock-names = "uart", "clk_uart_baud0";
++			resets = <&nexell_reset 52>;	/* RESET_ID_UART2 */
++			status = "disabled";
++		};
++
++		uart3: serial@c00a3000 {
++			compatible = "nexell,s5p6818-uart";
++			reg = <0xc00a3000 0x1000>;
++			interrupts = <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&uart3_clk>, <&uart3_clk>;
++			clock-names = "uart", "clk_uart_baud0";
++			resets = <&nexell_reset 53>;	/* RESET_ID_UART3 */
++			status = "disabled";
++		};
++
++		uart4: serial@c006d000 {
++			compatible = "nexell,s5p6818-uart";
++			reg = <0xc006d000 0x1000>;
++			interrupts = <GIC_SPI 10 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&uart4_clk>, <&uart4_clk>;
++			clock-names = "uart", "clk_uart_baud0";
++			resets = <&nexell_reset 54>;	/* RESET_ID_UART4 */
++			status = "disabled";
++		};
++
+ 		mmc0: mmc@c0062000 {
+ 			compatible = "snps,dw-mshc";
+ 			reg = <0xc0062000 0x1000>;
+@@ -729,6 +802,32 @@ sdhc1_clk: sdhc1-clk@c00cc000 {
+ 				#clock-cells = <0>;
+ 			};
+ 
++			/*
++			 * SDMMC0/SDMMC2 module clocks (CLK_ID_SDHC_0 = 18,
++			 * CLK_ID_SDHC_2 = 20), from PLL2 only: PLL1 is the CPU PLL.
++			 * 100 MHz lands on PLL2/6 = 102.4 MHz as in the vendor
++			 * kernel; the controller halves it again internally.
++			 */
++			sdhc0_clk: sdhc0-clk@c00c5000 {
++				reg = <0xc00c5000 0x100>;
++				clock-output-names = "sdhc0";
++				cell-id = <18>;
++				clk-step = <1>;
++				clk-input = <0x1004>;
++				clock-frequency = <100000000>;
++				#clock-cells = <0>;
++			};
++
++			sdhc2_clk: sdhc2-clk@c00cd000 {
++				reg = <0xc00cd000 0x100>;
++				clock-output-names = "sdhc2";
++				cell-id = <20>;
++				clk-step = <1>;
++				clk-input = <0x1004>;
++				clock-frequency = <100000000>;
++				#clock-cells = <0>;
++			};
++
+ 			/*
+ 			 * UART1 module clock (clk-gen @0xc00a8000, cell-id 24 =
+ 			 * CLK_ID_UART_1) for the Bluetooth UART. u-boot only uses the
+@@ -745,6 +844,49 @@ uart1_clk: uart1-clk@c00a8000 {
+ 				nexell,clk-critical;
+ 				#clock-cells = <0>;
+ 			};
++
++			/*
++			 * UART0/2/3/4 module clocks. Sourced from PLL2 only
++			 * (clk-input 0x1004): PLL1 is the CPU PLL. 147.5 MHz is the
++			 * vendor request and lands on PLL2/4 = 153.6 MHz, which
++			 * divides well to 3 Mbaud. The UART driver gates these itself.
++			 */
++			uart0_clk: uart0-clk@c00a9000 {
++				reg = <0xc00a9000 0x100>;
++				clock-output-names = "uart0";
++				cell-id = <22>;
++				clk-step = <1>;
++				clk-input = <0x1004>;
++				clock-frequency = <147500000>;
++				#clock-cells = <0>;
++			};
++			uart2_clk: uart2-clk@c00aa000 {
++				reg = <0xc00aa000 0x100>;
++				clock-output-names = "uart2";
++				cell-id = <23>;
++				clk-step = <1>;
++				clk-input = <0x1004>;
++				clock-frequency = <147500000>;
++				#clock-cells = <0>;
++			};
++			uart3_clk: uart3-clk@c00ab000 {
++				reg = <0xc00ab000 0x100>;
++				clock-output-names = "uart3";
++				cell-id = <25>;
++				clk-step = <1>;
++				clk-input = <0x1004>;
++				clock-frequency = <147500000>;
++				#clock-cells = <0>;
++			};
++			uart4_clk: uart4-clk@c006e000 {
++				reg = <0xc006e000 0x100>;
++				clock-output-names = "uart4";
++				cell-id = <26>;
++				clk-step = <1>;
++				clk-input = <0x1004>;
++				clock-frequency = <147500000>;
++				#clock-cells = <0>;
++			};
+ 		};
+ 
+ 		/*
+@@ -1030,6 +1172,22 @@ pwm: pwm@c0018000 {
+ 			status = "disabled";
+ 		};
+ 
++		/*
++		 * Watchdog, the S3C type with a quirk (see the driver). Its two
++		 * reset lines (58 and 59) are not handled by the driver: the
++		 * boot loader releases them.
++		 */
++		watchdog: watchdog@c0019000 {
++			compatible = "nexell,s5p6818-wdt";
++			reg = <0xc0019000 0x1000>;
++			interrupts = <GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&pwm_timer_clk>;	/* PCLK */
++			clock-names = "watchdog";
++			/* the longest the 16 bit counter gets to at 200 MHz */
++			timeout-sec = <10>;
++			status = "disabled";
++		};
++
+ 		/*
+ 		 * Thermal management units (exynos_tmu, SOC_ARCH_S5P6818). The
+ 		 * driver writes the SoC TIEOFF "sensing-start" bit for each. TMU0
+diff --git a/drivers/gpu/drm/nexell/Kconfig b/drivers/gpu/drm/nexell/Kconfig
+index 1dbb0ef39a0d..a82c3ffe2e6d 100644
+--- a/drivers/gpu/drm/nexell/Kconfig
++++ b/drivers/gpu/drm/nexell/Kconfig
+@@ -5,6 +5,7 @@ config DRM_NEXELL
+ 	select DRM_CLIENT_SELECTION
+ 	select DRM_GEM_DMA_HELPER
+ 	select DRM_KMS_HELPER
++	select VIDEOMODE_HELPERS
+ 	help
+ 	  Atomic-KMS driver for the Nexell S5Pxx18 display controller (DPC/MLC)
+ 	  and HDMI output. Work in progress: a single fixed-mode CRTC/plane that
+diff --git a/drivers/mmc/host/Kconfig b/drivers/mmc/host/Kconfig
+index 4f060d3e5636..8b542a90f06e 100644
+--- a/drivers/mmc/host/Kconfig
++++ b/drivers/mmc/host/Kconfig
+@@ -868,6 +868,17 @@ config MMC_DW_K3
+ 	  Synopsys DesignWare Memory Card Interface driver. Select this option
+ 	  for platforms based on Hisilicon K3 SoC's.
+ 
++config MMC_DW_NEXELL
++	tristate "Nexell specific extensions for Synopsys DW Memory Card Interface"
++	depends on MMC_DW
++	depends on ARCH_NEXELL || COMPILE_TEST
++	select MMC_DW_PLTFM
++	default ARCH_NEXELL
++	help
++	  This selects support for Nexell S5P6818 specific extensions to the
++	  Synopsys DesignWare Memory Card Interface driver: the fixed
++	  divide-by-two on the card clock and the clock phase register.
++
+ config MMC_DW_PCI
+ 	tristate "Synopsys Designware MCI support on PCI bus"
+ 	depends on MMC_DW && PCI
+diff --git a/drivers/mmc/host/Makefile b/drivers/mmc/host/Makefile
+index ee412e6b84d6..2549ad38a08d 100644
+--- a/drivers/mmc/host/Makefile
++++ b/drivers/mmc/host/Makefile
+@@ -55,6 +55,7 @@ obj-$(CONFIG_MMC_DW_EXYNOS)	+= dw_mmc-exynos.o
+ obj-$(CONFIG_MMC_DW_HI3798CV200) += dw_mmc-hi3798cv200.o
+ obj-$(CONFIG_MMC_DW_HI3798MV200) += dw_mmc-hi3798mv200.o
+ obj-$(CONFIG_MMC_DW_K3)		+= dw_mmc-k3.o
++obj-$(CONFIG_MMC_DW_NEXELL)	+= dw_mmc-nexell.o
+ obj-$(CONFIG_MMC_DW_PCI)	+= dw_mmc-pci.o
+ obj-$(CONFIG_MMC_DW_ROCKCHIP)	+= dw_mmc-rockchip.o
+ obj-$(CONFIG_MMC_DW_STARFIVE)	+= dw_mmc-starfive.o
+diff --git a/drivers/reset/Kconfig b/drivers/reset/Kconfig
+index d009eb0849a3..60c80d0751b7 100644
+--- a/drivers/reset/Kconfig
++++ b/drivers/reset/Kconfig
+@@ -276,7 +276,7 @@ config RESET_SCMI
+ 
+ config RESET_SIMPLE
+ 	bool "Simple Reset Controller Driver" if COMPILE_TEST || EXPERT
+-	default ARCH_ASPEED || ARCH_BCMBCA || ARCH_BITMAIN || ARCH_REALTEK || ARCH_SOPHGO || ARCH_STM32 || (ARCH_INTEL_SOCFPGA && ARM64) || ARCH_SUNXI || ARC
++	default ARCH_ASPEED || ARCH_BCMBCA || ARCH_BITMAIN || ARCH_NEXELL || ARCH_REALTEK || ARCH_SOPHGO || ARCH_STM32 || (ARCH_INTEL_SOCFPGA && ARM64) || ARCH_SUNXI || ARC
+ 	depends on HAS_IOMEM
+ 	help
+ 	  This enables a simple reset controller driver for reset lines that
+diff --git a/drivers/watchdog/s3c2410_wdt.c b/drivers/watchdog/s3c2410_wdt.c
+index e31f93db0509..848f1871c622 100644
+--- a/drivers/watchdog/s3c2410_wdt.c
++++ b/drivers/watchdog/s3c2410_wdt.c
+@@ -129,6 +129,10 @@
+  * %QUIRK_HAS_32BIT_CNT: WTDAT and WTCNT are 32-bit registers. With these
+  * 32-bit registers, larger values will be set, which means that larger timeouts
+  * value can be set.
++ *
++ * %QUIRK_RESET_NEEDS_INTEN: The reset only happens with the interrupt enabled
++ * in WTCON as well, and it does not happen when a handler acknowledges that
++ * interrupt first. So the interrupt is only requested for soft_noboot.
+  */
+ #define QUIRK_HAS_WTCLRINT_REG			BIT(0)
+ #define QUIRK_HAS_PMU_MASK_RESET		BIT(1)
+@@ -137,6 +141,7 @@
+ #define QUIRK_HAS_PMU_CNT_EN			BIT(4)
+ #define QUIRK_HAS_DBGACK_BIT			BIT(5)
+ #define QUIRK_HAS_32BIT_CNT			BIT(6)
++#define QUIRK_RESET_NEEDS_INTEN			BIT(7)
+ 
+ /* These quirks require that we have a PMU register map */
+ #define QUIRKS_HAVE_PMUREG \
+@@ -212,6 +217,10 @@ static const struct s3c2410_wdt_variant drv_data_s3c6410 = {
+ 	.quirks = QUIRK_HAS_WTCLRINT_REG,
+ };
+ 
++static const struct s3c2410_wdt_variant drv_data_s5p6818 = {
++	.quirks = QUIRK_HAS_WTCLRINT_REG | QUIRK_RESET_NEEDS_INTEN,
++};
++
+ static const struct s3c2410_wdt_variant drv_data_exynos5250  = {
+ 	.disable_reg = EXYNOS5_WDT_DISABLE_REG_OFFSET,
+ 	.mask_reset_reg = EXYNOS5_WDT_MASK_RESET_REG_OFFSET,
+@@ -375,6 +384,8 @@ static const struct of_device_id s3c2410_wdt_match[] = {
+ 	  .data = &drv_data_gs101_cl0 },
+ 	{ .compatible = "samsung,s3c6410-wdt",
+ 	  .data = &drv_data_s3c6410 },
++	{ .compatible = "nexell,s5p6818-wdt",
++	  .data = &drv_data_s5p6818 },
+ 	{ .compatible = "samsung,exynos5250-wdt",
+ 	  .data = &drv_data_exynos5250 },
+ 	{ .compatible = "samsung,exynos5420-wdt",
+@@ -544,7 +555,10 @@ static int s3c2410wdt_start(struct watchdog_device *wdd)
+ 		wtcon |= S3C2410_WTCON_INTEN;
+ 		wtcon &= ~S3C2410_WTCON_RSTEN;
+ 	} else {
+-		wtcon &= ~S3C2410_WTCON_INTEN;
++		if (wdt->drv_data->quirks & QUIRK_RESET_NEEDS_INTEN)
++			wtcon |= S3C2410_WTCON_INTEN;
++		else
++			wtcon &= ~S3C2410_WTCON_INTEN;
+ 		wtcon |= S3C2410_WTCON_RSTEN;
+ 	}
+ 
+@@ -625,7 +639,9 @@ static int s3c2410wdt_restart(struct watchdog_device *wdd, unsigned long action,
+ 
+ 	/* set the watchdog to go and reset... */
+ 	writel(S3C2410_WTCON_ENABLE | S3C2410_WTCON_DIV16 |
+-		S3C2410_WTCON_RSTEN | S3C2410_WTCON_PRESCALE(0x20),
++		S3C2410_WTCON_RSTEN | S3C2410_WTCON_PRESCALE(0x20) |
++		(wdt->drv_data->quirks & QUIRK_RESET_NEEDS_INTEN ?
++		 S3C2410_WTCON_INTEN : 0),
+ 		wdt_base + S3C2410_WTCON);
+ 
+ 	/* wait for reset to assert... */
+@@ -823,10 +839,12 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
+ 			return dev_err_probe(dev, ret, "failed to use default timeout\n");
+ 	}
+ 
+-	ret = devm_request_irq(dev, wdt_irq, s3c2410wdt_irq, 0,
+-			       pdev->name, pdev);
+-	if (ret != 0)
+-		return dev_err_probe(dev, ret, "failed to install irq (%d)\n", ret);
++	if (soft_noboot || !(wdt->drv_data->quirks & QUIRK_RESET_NEEDS_INTEN)) {
++		ret = devm_request_irq(dev, wdt_irq, s3c2410wdt_irq, 0,
++				       pdev->name, pdev);
++		if (ret != 0)
++			return dev_err_probe(dev, ret, "failed to install irq (%d)\n", ret);
++	}
+ 
+ 	watchdog_set_nowayout(&wdt->wdt_device, nowayout);
+ 	watchdog_set_restart_priority(&wdt->wdt_device, 128);

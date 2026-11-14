@@ -1,0 +1,128 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Samsung ARTIK710 module on the Raptor carrier (ARTIK 710 developer kit).
+ *
+ * Module: Nexell S5P6818, 1 GiB RAM, 4 GB eMMC, BCM43455 WiFi/BT, EM358x
+ * Zigbee, NXE2000 PMIC. Stock boot chain: bl1, ATF BL31 (PSCI), U-Boot 2016.01.
+ */
+
+/dts-v1/;
+
+/* OP-TEE shared memory; inside the range U-Boot reports as RAM. */
+/memreserve/ 0x7de00000 0x00100000;
+
+#include "s5p6818.dtsi"
+
+/ {
+	model = "Samsung ARTIK710 Raptor";
+	compatible = "samsung,artik710-raptor", "samsung,artik710",
+		     "nexell,s5p6818";
+
+	aliases {
+		serial0 = &uart0;	/* Zigbee */
+		serial1 = &uart1;	/* Bluetooth */
+		serial2 = &uart2;
+		serial3 = &uart3;	/* debug console */
+		serial4 = &uart4;
+		/* U-Boot writes the factory MAC (env ethaddr) into this node. */
+		ethernet0 = &gmac0;
+		/* Numbered as in the stock system: eMMC, SD slot, WiFi. */
+		mmc0 = &mmc2;
+		mmc1 = &mmc0;
+		mmc2 = &mmc1;
+	};
+
+	chosen {
+		stdout-path = "serial3:115200n8";
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x0 0x40000000 0x0 0x3df00000>;
+	};
+};
+
+/*
+ * U-Boot runs the console from a 50 MHz clock. 51.2 MHz (PLL2 / 12) is close
+ * enough that earlycon, which keeps U-Boot's divisor, stays readable after the
+ * clock driver has retuned the generator.
+ */
+&uart3_clk {
+	clock-frequency = <51200000>;
+};
+
+&uart3 {
+	status = "okay";
+};
+
+&gmac0 {
+	phy-handle = <&rtl_phy>;
+	snps,reset-gpio = <&gpio_a 12 GPIO_ACTIVE_LOW>;
+	snps,reset-active-low;
+	snps,reset-delays-us = <0 10000 30000>;
+	status = "okay";
+};
+
+&mdio0 {
+	rtl_phy: ethernet-phy@3 {	/* RTL8211E */
+		reg = <3>;
+	};
+};
+
+/* eMMC */
+&mmc2 {
+	compatible = "nexell,s5p6818-dw-mshc";
+	clocks = <&sdhc2_clk>, <&sdhc2_clk>;
+	resets = <&nexell_reset 41>;	/* RESET_ID_SDMMC2 */
+	reset-names = "reset";
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdmmc2_cclk &sdmmc2_cmd &sdmmc2_bus4>;
+	status = "okay";
+};
+
+/* SD slot of the Raptor board */
+&mmc0 {
+	compatible = "nexell,s5p6818-dw-mshc";
+	clocks = <&sdhc0_clk>, <&sdhc0_clk>;
+	resets = <&nexell_reset 39>;	/* RESET_ID_SDMMC0 */
+	reset-names = "reset";
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdmmc0_cclk &sdmmc0_cmd &sdmmc0_bus4>;
+	/delete-property/ broken-cd;
+	cd-gpios = <&gpio_b 16 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&watchdog {
+	status = "okay";
+};
+
+/* WL_REG_ON of the BCM43455 is GPIOD28 on this module. */
+&wifi_pwrseq {
+	reset-gpios = <&gpio_d 28 GPIO_ACTIVE_LOW>;
+};
+
+/* Not brought up yet. */
+&gpu {
+	status = "disabled";
+};
+
+&usb2_phy {
+	status = "disabled";
+};
+
+&ehci {
+	status = "disabled";
+};
+
+&ohci {
+	status = "disabled";
+};
+
+&dwc2 {
+	status = "disabled";
+};
+
+&rtc {
+	status = "disabled";
+};
