@@ -263,6 +263,51 @@ index 1dbb0ef39a0d..a82c3ffe2e6d 100644
  	help
  	  Atomic-KMS driver for the Nexell S5Pxx18 display controller (DPC/MLC)
  	  and HDMI output. Work in progress: a single fixed-mode CRTC/plane that
+diff --git a/drivers/mfd/rn5t618.c b/drivers/mfd/rn5t618.c
+index 23ca00d2c624..8fc9298e5068 100644
+--- a/drivers/mfd/rn5t618.c
++++ b/drivers/mfd/rn5t618.c
+@@ -150,9 +150,11 @@ static void rn5t618_trigger_poweroff_sequence(bool repower)
+ 	dev_alert(&rn5t618_pm_power_off->dev, "Failed to shutdown (err = %d)\n", ret);
+ }
+ 
+-static void rn5t618_power_off(void)
++static int rn5t618_power_off(struct sys_off_data *data)
+ {
+ 	rn5t618_trigger_poweroff_sequence(false);
++
++	return NOTIFY_DONE;
+ }
+ 
+ static int rn5t618_restart(struct notifier_block *this,
+@@ -215,10 +217,11 @@ static int rn5t618_i2c_probe(struct i2c_client *i2c)
+ 
+ 	rn5t618_pm_power_off = i2c;
+ 	if (of_device_is_system_power_controller(i2c->dev.of_node)) {
+-		if (!pm_power_off)
+-			pm_power_off = rn5t618_power_off;
+-		else
+-			dev_warn(&i2c->dev, "Poweroff callback already assigned\n");
++		/* Not pm_power_off: with PSCI that one is taken. */
++		ret = devm_register_power_off_handler(&i2c->dev,
++						      rn5t618_power_off, NULL);
++		if (ret)
++			return ret;
+ 	}
+ 
+ 	rn5t618_restart_handler.notifier_call = rn5t618_restart;
+@@ -235,10 +238,8 @@ static int rn5t618_i2c_probe(struct i2c_client *i2c)
+ 
+ static void rn5t618_i2c_remove(struct i2c_client *i2c)
+ {
+-	if (i2c == rn5t618_pm_power_off) {
++	if (i2c == rn5t618_pm_power_off)
+ 		rn5t618_pm_power_off = NULL;
+-		pm_power_off = NULL;
+-	}
+ 
+ 	unregister_restart_handler(&rn5t618_restart_handler);
+ }
 diff --git a/drivers/mmc/host/Kconfig b/drivers/mmc/host/Kconfig
 index 4f060d3e5636..8b542a90f06e 100644
 --- a/drivers/mmc/host/Kconfig
