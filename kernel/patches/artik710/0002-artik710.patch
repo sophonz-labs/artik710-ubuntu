@@ -385,6 +385,142 @@ index 1dbb0ef39a0d..a82c3ffe2e6d 100644
  	help
  	  Atomic-KMS driver for the Nexell S5Pxx18 display controller (DPC/MLC)
  	  and HDMI output. Work in progress: a single fixed-mode CRTC/plane that
+diff --git a/drivers/gpu/drm/nexell/nx_display_drv.c b/drivers/gpu/drm/nexell/nx_display_drv.c
+index bf06c08ac6e0..085219125e1b 100644
+--- a/drivers/gpu/drm/nexell/nx_display_drv.c
++++ b/drivers/gpu/drm/nexell/nx_display_drv.c
+@@ -29,6 +29,7 @@
+ #include <drm/drm_simple_kms_helper.h>
+ 
+ #include <linux/dma-mapping.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/i2c.h>
+ #include <linux/io.h>
+ #include <linux/module.h>
+@@ -51,6 +52,10 @@
+ #define NX_HDMI_CTRL_SIZE		0x1000
+ #define NX_HDMI_HPD_STATUS		0x000c
+ 
++/* TIEOFF register 3 bit 0: NX_TIEOFF_DISPLAYTOP0_i_HDMI_PHY_REFCLK_SEL. */
++#define NX_TIEOFF_HDMI_REFCLK		0xc001100c
++#define NX_TIEOFF_HDMI_REFCLK_SEL	BIT(0)
++
+ /* MLC.0 (multi-layer controller feeding DPC.0). */
+ #define NX_MLC0_BASE			0xc0102000
+ #define NX_MLC0_SIZE			0x1000
+@@ -109,7 +114,18 @@ static const struct drm_connector_helper_funcs nx_conn_helper_funcs = {
+ 	.get_modes = nx_conn_get_modes,
+ };
+ 
++/* Without .detect the probe helper reports "connected" and fbdev modesets. */
++static enum drm_connector_status
++nx_conn_detect(struct drm_connector *conn, bool force)
++{
++	struct nx_drm *nx = conn_to_nx(conn);
++
++	return (readl(nx->hdmi_ctrl + NX_HDMI_HPD_STATUS) & 1) ?
++		connector_status_connected : connector_status_disconnected;
++}
++
+ static const struct drm_connector_funcs nx_conn_funcs = {
++	.detect = nx_conn_detect,
+ 	.reset = drm_atomic_helper_connector_reset,
+ 	.fill_modes = drm_helper_probe_single_connector_modes,
+ 	.destroy = drm_connector_cleanup,
+@@ -124,7 +140,54 @@ static const u32 nx_clkgen_phys[5] = {
+ 	0xc0106000, 0xc0107000, 0xc0105000, 0xc0108000, 0xc0109000,
+ };
+ 
+-/* One-time SoC-layer base + reset + dp_output setup. */
++/*
++ * Take the display blocks out of reset and select the HDMI PHY reference
++ * clock, as the vendor driver does at probe. The FriendlyARM U-Boot does this
++ * for its boot logo; a boot chain without display support (ARTIK710) does not.
++ */
++static int nx_display_power_up(struct nx_drm *nx)
++{
++	static const char * const top_resets[] = { "disp_top", "display" };
++	struct device *dev = nx->drm.dev;
++	struct reset_control *rc;
++	struct gpio_desc *en;
++	void __iomem *tieoff;
++	int i;
++
++	/* On for good, as in the vendor driver. */
++	en = devm_gpiod_get_optional(dev, "enable", GPIOD_OUT_HIGH);
++	if (IS_ERR(en))
++		return PTR_ERR(en);
++
++	for (i = 0; i < ARRAY_SIZE(top_resets); i++) {
++		rc = devm_reset_control_get_optional_exclusive(dev,
++							       top_resets[i]);
++		if (IS_ERR(rc))
++			return PTR_ERR(rc);
++		reset_control_deassert(rc);
++	}
++
++	/*
++	 * HDMI resets: hdmi, video, spdif, tmds, phy. The PHY reset is only
++	 * released here; hdmi_reset() pulses the other four on each modeset.
++	 */
++	for (i = 0; i < 5; i++) {
++		rc = devm_reset_control_get_exclusive_by_index(dev, i);
++		if (IS_ERR(rc))
++			return PTR_ERR(rc);
++		reset_control_deassert(rc);
++		nx->nxdev.res.dev_resets[i] = rc;
++	}
++	nx->nxdev.res.num_dev_resets = 5;
++
++	tieoff = devm_ioremap(dev, NX_TIEOFF_HDMI_REFCLK, 4);
++	if (!tieoff)
++		return -ENOMEM;
++	writel(readl(tieoff) | NX_TIEOFF_HDMI_REFCLK_SEL, tieoff);
++	return 0;
++}
++
++/* One-time SoC-layer base + dp_output setup. */
+ static int nx_hdmi_setup(struct nx_drm *nx)
+ {
+ 	struct device *dev = nx->drm.dev;
+@@ -161,17 +224,6 @@ static int nx_hdmi_setup(struct nx_drm *nx)
+ 		return -ENOMEM;
+ 	nx->nxdev.res.num_devs = 1;
+ 
+-	/* HDMI resets: hdmi, video, spdif, tmds, phy (phy last, skipped by
+-	 * hdmi_reset and pulsed by the PHY programming). */
+-	for (i = 0; i < 5; i++) {
+-		struct reset_control *rc =
+-			devm_reset_control_get_exclusive_by_index(dev, i);
+-		if (IS_ERR(rc))
+-			return PTR_ERR(rc);
+-		nx->nxdev.res.dev_resets[i] = rc;
+-	}
+-	nx->nxdev.res.num_dev_resets = 5;
+-
+ 	dpc->module = 0;
+ 	if (nx_dp_device_hdmi_register(dev, NULL, dpc))
+ 		return -ENOMEM;
+@@ -342,6 +394,10 @@ static int nx_load(struct nx_drm *nx)
+ 	 */
+ 	nx_mlc_set_base_address(0, nx->mlc);
+ 
++	ret = nx_display_power_up(nx);
++	if (ret)
++		return ret;
++
+ 	/* Ungate the HDMI display clocks. */
+ 	writel(NX_CLKGEN_ON, nx->clk_spdif);
+ 	writel(NX_CLKGEN_ON, nx->clk_vclk);
+@@ -383,6 +439,8 @@ static int nx_load(struct nx_drm *nx)
+ 					  DRM_MODE_CONNECTOR_HDMIA, nx->ddc);
+ 	if (ret)
+ 		return ret;
++	nx->conn.polled = DRM_CONNECTOR_POLL_CONNECT |
++			  DRM_CONNECTOR_POLL_DISCONNECT;
+ 
+ 	ret = drm_simple_display_pipe_init(drm, &nx->pipe, &nx_pipe_funcs,
+ 					   nx_formats, ARRAY_SIZE(nx_formats),
 diff --git a/drivers/iio/adc/Kconfig b/drivers/iio/adc/Kconfig
 index c6d3cf68b1f7..9ab46247b1ea 100644
 --- a/drivers/iio/adc/Kconfig
