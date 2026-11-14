@@ -1,0 +1,70 @@
+#!/bin/sh
+# Build the Ubuntu 26.04 (resolute) arm64 root filesystem for the ARTIK710.
+#
+# Result, in the Docker volume artik710-rootfs:
+#   /rootfs/root          the tree (kept, so later runs only re-apply the overlay)
+#   /rootfs/rootfs.ext4   ext4 image, label "rootfs", 1200 MiB: small enough to sit
+#                         as a file on the stock root during development. On
+#                         eMMC p7 it grows to the partition at the first boot.
+#
+#   tools/mk-rootfs           bootstrap if needed, apply rootfs/overlay, modules,
+#                             tests (also left in out/tests), image
+#   tools/mk-rootfs --fresh   throw the tree away and bootstrap again
+#
+# Login: user "artik", password "artik" (sudo), to be changed at the first login.
+# ARTIK_AUTHORIZED_KEYS=FILE lets those SSH keys log in as root; without it root
+# cannot log in. An image built with it is not one to give away.
+set -e
+cd "$(dirname "$0")/.."
+key=${ARTIK_AUTHORIZED_KEYS:+$(cat "$ARTIK_AUTHORIZED_KEYS")}
+
+docker run --rm --privileged -v artik710-rootfs:/rootfs -v artik710-src:/src \
+	-v "$PWD":/work -e KEY="$key" -e FRESH="$1" artik710-builder sh -ec '
+R=/rootfs/root
+[ "$FRESH" != --fresh ] || rm -rf $R
+if [ ! -e $R/etc/os-release ]; then
+	m=http://ports.ubuntu.com/ubuntu-ports
+	mmdebstrap --variant=minbase --components=main,universe \
+		--include="$(grep -v "^#" /work/rootfs/packages | tr "\n" ,)" \
+		resolute $R \
+		"deb $m resolute main universe" \
+		"deb $m resolute-updates main universe" \
+		"deb $m resolute-security main universe"
+	chroot $R useradd -m -s /bin/bash -G sudo artik
+	echo artik:artik | chroot $R chpasswd
+	chroot $R chage -d 0 artik
+fi
+
+cp -a /work/rootfs/overlay/. $R/
+chmod 600 $R/etc/netplan/*.yaml
+rm -rf $R/root/.ssh
+if [ -n "$KEY" ]; then
+	install -d -m 700 $R/root/.ssh
+	echo "$KEY" > $R/root/.ssh/authorized_keys
+fi
+# Every board gets its own: the host keys from artik710-firstboot.service, the
+# machine ID from systemd.
+rm -f $R/etc/ssh/ssh_host_* $R/var/lib/dbus/machine-id
+: > $R/etc/machine-id
+
+# kernel modules as installed by tools/kernel build
+if [ -d /src/mods/lib/modules ]; then
+	rm -rf $R/lib/modules
+	cp -a /src/mods/lib/modules $R/lib/
+	for v in $R/lib/modules/*; do chroot $R depmod "${v##*/}"; done
+fi
+
+# platform tests: the C programs are static so they also run on stock
+for c in /work/tests/*.c; do
+	t=$(basename "$c" .c)
+	gcc -O2 -Wall -static -pthread -o $R/usr/local/bin/$t "$c"
+	install -D $R/usr/local/bin/$t /work/out/tests/$t
+done
+for s in /work/tests/*.sh; do
+	install -m 755 "$s" $R/usr/local/bin/$(basename "$s" .sh)
+done
+
+rm -f /rootfs/rootfs.ext4
+mke2fs -q -t ext4 -L rootfs -d $R /rootfs/rootfs.ext4 1200M
+du -sh $R; ls -l /rootfs/rootfs.ext4
+'

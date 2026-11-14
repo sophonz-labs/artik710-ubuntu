@@ -1,0 +1,12 @@
+[Unit]
+Description=First boot: SSH host keys, root filesystem as large as its partition
+ConditionPathExists=!/etc/ssh/ssh_host_ed25519_key
+Before=ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+ExecStart=/bin/sh -c 'resize2fs "$(findmnt -no SOURCE /)"'
+
+[Install]
+WantedBy=multi-user.target
