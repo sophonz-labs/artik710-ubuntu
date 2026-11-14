@@ -1,0 +1,47 @@
+#!/bin/sh
+# Collect a release in out/release/, from the results of tools/kernel build,
+# tools/mk-initramfs and tools/mk-rootfs:
+#   Image, s5p6818-artik710-raptor.dtb, uInitrd   for the boot partition
+#   rootfs.ext4.xz                                 the root filesystem image
+#   install.sh                                     puts all of it on a board
+#   SHA256SUMS
+# Fails if the result is not one to give away: see the checks below.
+set -e
+cd "$(dirname "$0")/.."
+rm -rf out/release
+mkdir -p out/release
+cp out/boot/Image out/boot/s5p6818-artik710-raptor.dtb out/boot/uInitrd tools/install.sh out/release/
+
+docker run --rm -v artik710-rootfs:/rootfs -v artik710-src:/src -v "$PWD":/work \
+	-w /work/out/release artik710-builder sh -ec '
+no() { echo "mk-release: $*" >&2; exit 1; }
+R=/rootfs/root
+
+# The boot partition is a 32 MiB ext4 that holds 27 MiB of files.
+[ "$(cat Image *.dtb uInitrd | wc -c)" -le $((27 << 20)) ] ||
+	no "Image, dtb and uInitrd do not fit in the boot partition"
+
+# The modules in the root filesystem are the ones of this kernel.
+v=$(strings Image | sed -n "s/^Linux version \([^ ]*\) .*/\1/p" | head -1)
+[ -n "$v" ] && [ -d "$R/lib/modules/$v" ] ||
+	no "the root filesystem has no modules for the kernel ($v): run tools/mk-rootfs"
+
+# Nothing of the build machine, nothing that every board would share.
+[ ! -e $R/root/.ssh ] || no "built with ARTIK_AUTHORIZED_KEYS: run tools/mk-rootfs without it"
+[ ! -s $R/etc/machine-id ] || no "the root filesystem has a machine ID"
+! ls $R/etc/ssh/ssh_host_* >/dev/null 2>&1 || no "the root filesystem has SSH host keys"
+e2fsck -fn /rootfs/rootfs.ext4 >/dev/null || no "the root filesystem image is damaged"
+
+# CCI-400 (see tests/smp-coherency.c): the only TLB invalidation that may go to
+# the other CPUs is the one of the whole TLB, which has no operand. (The ones of
+# the zero register are errata workarounds of other CPUs and invalidate nothing.)
+t=$( { objdump -d /src/out/vmlinux
+	find /src/mods -name "*.ko" -exec objdump -d {} +; } |
+	grep -E "tlbi[[:space:]]+[a-z0-9]+is,[[:space:]]*x[0-9]" || :)
+[ -z "$t" ] || { echo "$t" | head >&2; no "the kernel broadcasts TLB invalidations by address or ASID"; }
+
+# crc32: the check that the xz of the initramfs (busybox) verifies
+xz -T0 --check=crc32 -c /rootfs/rootfs.ext4 > rootfs.ext4.xz
+sha256sum * > SHA256SUMS
+'
+ls -l out/release
