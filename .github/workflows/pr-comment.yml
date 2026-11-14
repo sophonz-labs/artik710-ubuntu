@@ -29,7 +29,7 @@ jobs:
             --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | head -1)
           [ -n "$pr" ] || { echo "no open pull request at $HEAD_SHA"; exit 0; }
           a=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
-            --jq '.artifacts[] | select(.name == "artik710-ubuntu") | "\(.id) \(.size_in_bytes / 1048576 | floor)"')
+            --jq '[.artifacts[] | select(.name == "artik710-ubuntu")] | max_by(.created_at) // empty | "\(.id) \(.size_in_bytes / 1048576 | floor)"')
           [ -n "$a" ] || { echo "the run has no artifact"; exit 1; }
           url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID
           cat > body.md <<EOF
