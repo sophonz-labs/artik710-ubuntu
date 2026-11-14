@@ -8,7 +8,7 @@ index 93907737d1b4..0c527bca386e 100644
  dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-nanopi-fire3.dtb
 +dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-artik710-raptor.dtb
 diff --git a/arch/arm64/boot/dts/nexell/s5p6818.dtsi b/arch/arm64/boot/dts/nexell/s5p6818.dtsi
-index b83f22cf1f5d..edda664c9278 100644
+index b83f22cf1f5d..3223c5f192ed 100644
 --- a/arch/arm64/boot/dts/nexell/s5p6818.dtsi
 +++ b/arch/arm64/boot/dts/nexell/s5p6818.dtsi
 @@ -418,6 +418,48 @@ sdmmc1_bus4: sdmmc1-bus4 {
@@ -60,7 +60,33 @@ index b83f22cf1f5d..edda664c9278 100644
  			/* UART1 (Bluetooth): TXD gpiod-15, RXD gpiod-19 (fn1). */
  			serial1_pins: serial1-pins {
  				nexell,pins = "gpiod-15", "gpiod-19";
-@@ -494,6 +536,37 @@ uart1: serial@c00a0000 {
+@@ -432,6 +474,25 @@ serial1_flow: serial1-flow {
+ 				nexell,pin-pull = <2>;
+ 				nexell,pin-strength = <0>;
+ 			};
++			/* UART0, 2 and 4: TXD and RXD. */
++			serial0_pins: serial0-pins {
++				nexell,pins = "gpiod-14", "gpiod-18";
++				nexell,pin-function = <1>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <0>;
++			};
++			serial2_pins: serial2-pins {
++				nexell,pins = "gpiod-16", "gpiod-20";
++				nexell,pin-function = <1>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <0>;
++			};
++			serial4_pins: serial4-pins {
++				nexell,pins = "gpiob-28", "gpiob-29";
++				nexell,pin-function = <3>;
++				nexell,pin-pull = <2>;
++				nexell,pin-strength = <0>;
++			};
+ 		};
+ 
+ 		gic: interrupt-controller@c0009000 {
+@@ -494,6 +555,37 @@ uart1: serial@c00a0000 {
  			status = "disabled";
  		};
  
@@ -98,7 +124,7 @@ index b83f22cf1f5d..edda664c9278 100644
  		mmc0: mmc@c0062000 {
  			compatible = "snps,dw-mshc";
  			reg = <0xc0062000 0x1000>;
-@@ -729,6 +802,32 @@ sdhc1_clk: sdhc1-clk@c00cc000 {
+@@ -729,6 +821,32 @@ sdhc1_clk: sdhc1-clk@c00cc000 {
  				#clock-cells = <0>;
  			};
  
@@ -131,7 +157,7 @@ index b83f22cf1f5d..edda664c9278 100644
  			/*
  			 * UART1 module clock (clk-gen @0xc00a8000, cell-id 24 =
  			 * CLK_ID_UART_1) for the Bluetooth UART. u-boot only uses the
-@@ -745,6 +844,49 @@ uart1_clk: uart1-clk@c00a8000 {
+@@ -745,6 +863,49 @@ uart1_clk: uart1-clk@c00a8000 {
  				nexell,clk-critical;
  				#clock-cells = <0>;
  			};
@@ -181,7 +207,7 @@ index b83f22cf1f5d..edda664c9278 100644
  		};
  
  		/*
-@@ -1030,6 +1172,22 @@ pwm: pwm@c0018000 {
+@@ -1030,6 +1191,22 @@ pwm: pwm@c0018000 {
  			status = "disabled";
  		};
  
@@ -250,6 +276,23 @@ index ee412e6b84d6..2549ad38a08d 100644
  obj-$(CONFIG_MMC_DW_PCI)	+= dw_mmc-pci.o
  obj-$(CONFIG_MMC_DW_ROCKCHIP)	+= dw_mmc-rockchip.o
  obj-$(CONFIG_MMC_DW_STARFIVE)	+= dw_mmc-starfive.o
+diff --git a/drivers/power/reset/nexell-restart.c b/drivers/power/reset/nexell-restart.c
+index 4617fd89e82f..c48e86865000 100644
+--- a/drivers/power/reset/nexell-restart.c
++++ b/drivers/power/reset/nexell-restart.c
+@@ -66,7 +66,11 @@ static int nx_restart_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 
+ 	priv->nb.notifier_call = nx_restart_notify;
+-	priv->nb.priority = 192;	/* above PSCI's restart handler (129) */
++	/*
++	 * Above PSCI's restart handler (129), and above the 192 of a PMIC
++	 * (rn5t618), which restarts by switching the board off first.
++	 */
++	priv->nb.priority = 200;
+ 
+ 	ret = register_restart_handler(&priv->nb);
+ 	if (ret) {
 diff --git a/drivers/reset/Kconfig b/drivers/reset/Kconfig
 index d009eb0849a3..60c80d0751b7 100644
 --- a/drivers/reset/Kconfig

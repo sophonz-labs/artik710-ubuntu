@@ -11,6 +11,7 @@
 /* OP-TEE shared memory; inside the range U-Boot reports as RAM. */
 /memreserve/ 0x7de00000 0x00100000;
 
+#include <dt-bindings/input/input.h>
 #include "s5p6818.dtsi"
 
 / {
@@ -30,6 +31,18 @@
 		mmc0 = &mmc2;
 		mmc1 = &mmc0;
 		mmc2 = &mmc1;
+		/* Also as in the stock system, which has no bus 3. */
+		i2c0 = &i2c_0;
+		i2c1 = &i2c_1;
+		i2c2 = &i2c_2;
+		i2c4 = &i2c_gpio4;
+		i2c5 = &i2c_gpio5;
+		i2c6 = &i2c_gpio6;
+		i2c7 = &i2c_gpio7;
+		i2c8 = &i2c_gpio8;
+		i2c9 = &i2c_gpio9;
+		i2c10 = &i2c_gpio10;
+		i2c11 = &i2c_gpio11;
 	};
 
 	chosen {
@@ -39,6 +52,136 @@
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0x0 0x40000000 0x0 0x3df00000>;
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&key_pins>;
+
+		key-power {
+			label = "Power";
+			gpios = <&alive_0 0 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_POWER>;
+			wakeup-source;
+		};
+
+		key-wakeup {
+			label = "Wakeup";
+			gpios = <&alive_0 1 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_WAKEUP>;
+			wakeup-source;
+		};
+	};
+
+	/*
+	 * The I2C buses on GPIOs, with the pins and the timing of the stock
+	 * system. What is on them: 4 the USB hub, 7 the HDMI DDC, 10 the PMIC;
+	 * 5, 6, 8 and 9 are for chips that this board does not have (RTC,
+	 * audio codec, fuel gauge, charger).
+	 */
+	i2c_gpio4: i2c-4 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_b 30 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_b 31 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	i2c_gpio5: i2c-5 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_d 31 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_e 3 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <100>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	i2c_gpio6: i2c-6 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_a 5 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_a 4 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <10>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	i2c_gpio7: i2c-7 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_a 24 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_a 23 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <100>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	i2c_gpio8: i2c-8 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_a 13 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_a 9 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	i2c_gpio9: i2c-9 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_a 19 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_a 20 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	i2c_gpio10: i2c-10 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_c 16 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_c 15 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		/*
+		 * NXE2000: the registers of the Ricoh RC5T619. No regulator
+		 * is described: the boot loader switches all of them on, and
+		 * with the voltages that the stock system has.
+		 */
+		pmic@32 {
+			compatible = "ricoh,rc5t619";
+			reg = <0x32>;
+			interrupt-parent = <&alive_0>;
+			interrupts = <5 IRQ_TYPE_LEVEL_LOW>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pmic_irq_pin>;
+			system-power-controller;
+		};
+	};
+
+	i2c_gpio11: i2c-11 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_b 18 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_b 11 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+};
+
+&pinctrl_0 {
+	/* Both keys pull the pin to ground. */
+	key_pins: key-pins {
+		nexell,pins = "alive-0", "alive-1";
+		nexell,pin-function = <0>;
+		nexell,pin-pull = <1>;
+		nexell,pin-strength = <0>;
+	};
+
+	pmic_irq_pin: pmic-irq-pin {
+		nexell,pins = "alive-5";
+		nexell,pin-function = <0>;
+		nexell,pin-pull = <1>;
+		nexell,pin-strength = <0>;
 	};
 };
 
@@ -52,6 +195,39 @@
 };
 
 &uart3 {
+	status = "okay";
+};
+
+/* The SoC file has the clock that U-Boot leaves on a console here. */
+&uart0 {
+	clocks = <&uart0_clk>, <&uart0_clk>;
+	resets = <&nexell_reset 50>;	/* RESET_ID_UART0 */
+	pinctrl-names = "default";
+	pinctrl-0 = <&serial0_pins>;
+	status = "okay";
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&serial2_pins>;
+	status = "okay";
+};
+
+&uart4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&serial4_pins>;
+	status = "okay";
+};
+
+&i2c_0 {
+	status = "okay";
+};
+
+&i2c_1 {
+	status = "okay";
+};
+
+&i2c_2 {
 	status = "okay";
 };
 
@@ -120,9 +296,5 @@
 };
 
 &dwc2 {
-	status = "disabled";
-};
-
-&rtc {
 	status = "disabled";
 };
