@@ -54,6 +54,23 @@
 		reg = <0x0 0x40000000 0x0 0x3df00000>;
 	};
 
+	/* The stock system sets this pin with the EHCI and leaves it high. */
+	regulator-usb-host-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb-host-vbus";
+		gpio = <&gpio_a 16 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-always-on;
+	};
+
+	/* On while the OTG port is a host. */
+	usb_otg_vbus: regulator-usb-otg-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb-otg-vbus";
+		gpio = <&gpio_a 15 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
@@ -87,6 +104,16 @@
 		i2c-gpio,delay-us = <1>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		/* USB3503 on the HSIC port; the USB sockets are behind it. */
+		usb-hub@8 {
+			compatible = "smsc,usb3503";
+			reg = <0x08>;
+			intn-gpios = <&gpio_b 23 GPIO_ACTIVE_HIGH>;
+			connect-gpios = <&gpio_a 18 GPIO_ACTIVE_HIGH>;
+			reset-gpios = <&gpio_a 22 GPIO_ACTIVE_LOW>;
+			initial-mode = <1>;	/* hub */
+		};
 	};
 
 	i2c_gpio5: i2c-5 {
@@ -283,18 +310,16 @@
 	status = "disabled";
 };
 
-&usb2_phy {
-	status = "disabled";
-};
-
+/*
+ * Port 1 has the host PHY, port 2 the HSIC PHY with the hub. The HSIC PHY
+ * takes its clock from the OTG PHY, which therefore comes first.
+ */
 &ehci {
-	status = "disabled";
-};
-
-&ohci {
-	status = "disabled";
+	phys = <&usb2_phy 0>, <&usb2_phy 1>, <&usb2_phy 2>;
+	/delete-property/ phy-names;
 };
 
 &dwc2 {
-	status = "disabled";
+	dr_mode = "otg";
+	vbus-supply = <&usb_otg_vbus>;
 };

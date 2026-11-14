@@ -1,3 +1,15 @@
+diff --git a/Documentation/devicetree/bindings/usb/generic-ehci.yaml b/Documentation/devicetree/bindings/usb/generic-ehci.yaml
+index 55a5aa7d7a54..b5747f91efc4 100644
+--- a/Documentation/devicetree/bindings/usb/generic-ehci.yaml
++++ b/Documentation/devicetree/bindings/usb/generic-ehci.yaml
+@@ -50,6 +50,7 @@ properties:
+               - brcm,bcm7435-ehci
+               - hpe,gxp-ehci
+               - ibm,476gtr-ehci
++              - nexell,s5p6818-ehci
+               - nxp,lpc1850-ehci
+               - qca,ar7100-ehci
+               - rockchip,rk3588-ehci
 diff --git a/arch/arm64/boot/dts/nexell/Makefile b/arch/arm64/boot/dts/nexell/Makefile
 index 93907737d1b4..0c527bca386e 100644
 --- a/arch/arm64/boot/dts/nexell/Makefile
@@ -8,7 +20,7 @@ index 93907737d1b4..0c527bca386e 100644
  dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-nanopi-fire3.dtb
 +dtb-$(CONFIG_ARCH_NEXELL) += s5p6818-artik710-raptor.dtb
 diff --git a/arch/arm64/boot/dts/nexell/s5p6818.dtsi b/arch/arm64/boot/dts/nexell/s5p6818.dtsi
-index b83f22cf1f5d..3223c5f192ed 100644
+index b83f22cf1f5d..752a4945172d 100644
 --- a/arch/arm64/boot/dts/nexell/s5p6818.dtsi
 +++ b/arch/arm64/boot/dts/nexell/s5p6818.dtsi
 @@ -418,6 +418,48 @@ sdmmc1_bus4: sdmmc1-bus4 {
@@ -207,6 +219,15 @@ index b83f22cf1f5d..3223c5f192ed 100644
  		};
  
  		/*
+@@ -840,7 +1001,7 @@ usb2_phy: usb-phy@c0011000 {
+ 
+ 		/* USB2 EHCI host (high speed). Two type-A ports. */
+ 		ehci: usb@c0030000 {
+-			compatible = "generic-ehci";
++			compatible = "nexell,s5p6818-ehci", "generic-ehci";
+ 			reg = <0xc0030000 0x10000>;
+ 			interrupts = <GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>;
+ 			clocks = <&usbhost_clk>;
 @@ -1030,6 +1191,22 @@ pwm: pwm@c0018000 {
  			status = "disabled";
  		};
@@ -306,6 +327,67 @@ index d009eb0849a3..60c80d0751b7 100644
  	depends on HAS_IOMEM
  	help
  	  This enables a simple reset controller driver for reset lines that
+diff --git a/drivers/usb/host/ehci-platform.c b/drivers/usb/host/ehci-platform.c
+index f61f095cedab..598df5eec7c6 100644
+--- a/drivers/usb/host/ehci-platform.c
++++ b/drivers/usb/host/ehci-platform.c
+@@ -50,6 +50,7 @@ struct ehci_platform_priv {
+ 	struct reset_control *rsts;
+ 	bool reset_on_resume;
+ 	bool quirk_poll;
++	bool nexell_hsic;
+ 	struct timer_list poll_timer;
+ 	struct delayed_work poll_work;
+ };
+@@ -115,10 +116,37 @@ static void ehci_platform_power_off(struct platform_device *dev)
+ 		clk_disable_unprepare(priv->clks[clk]);
+ }
+ 
++/*
++ * S5P6818: root port 2 (index 1) is the HSIC port. Its bit in the Synopsys
++ * INSNREG08 register follows the port power, as in the vendor ehci-exynos.
++ */
++#define NEXELL_EHCI_INSNREG08	0xb0
++#define NEXELL_EHCI_HSIC_PORT	1
++
++static int ehci_platform_port_power(struct usb_hcd *hcd, int portnum,
++				    bool enable)
++{
++	struct ehci_platform_priv *priv = hcd_to_ehci_priv(hcd);
++	u32 val;
++
++	if (!priv->nexell_hsic || portnum != NEXELL_EHCI_HSIC_PORT)
++		return 0;
++
++	val = readl(hcd->regs + NEXELL_EHCI_INSNREG08);
++	if (enable)
++		val |= BIT(portnum);
++	else
++		val &= ~BIT(portnum);
++	writel(val, hcd->regs + NEXELL_EHCI_INSNREG08);
++
++	return 0;
++}
++
+ static struct hc_driver __read_mostly ehci_platform_hc_driver;
+ 
+ static const struct ehci_driver_overrides platform_overrides __initconst = {
+ 	.reset =		ehci_platform_reset,
++	.port_power =		ehci_platform_port_power,
+ 	.extra_priv_size =	sizeof(struct ehci_platform_priv),
+ };
+ 
+@@ -310,6 +338,10 @@ static int ehci_platform_probe(struct platform_device *dev)
+ 					    "aspeed,ast2700-ehci"))
+ 			ehci->is_aspeed = 1;
+ 
++		if (of_device_is_compatible(dev->dev.of_node,
++					    "nexell,s5p6818-ehci"))
++			priv->nexell_hsic = true;
++
+ 		if (soc_device_match(quirk_poll_match))
+ 			priv->quirk_poll = true;
+ 
 diff --git a/drivers/watchdog/s3c2410_wdt.c b/drivers/watchdog/s3c2410_wdt.c
 index e31f93db0509..848f1871c622 100644
 --- a/drivers/watchdog/s3c2410_wdt.c
