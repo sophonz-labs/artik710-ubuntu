@@ -2,6 +2,7 @@
 # Check the hardware interfaces of an ARTIK710 Raptor board from the running
 # system. Run it as root. Nothing has to be plugged in: what cannot be seen
 # without a cable, a card or a hand on the board is reported as "skip".
+# The Zigbee check resets the Zigbee chip.
 #
 #   board-test             every check
 #   board-test uart i2c    only these
@@ -66,8 +67,39 @@ t_usb() {
 	[ "$(cat $u/state 2>/dev/null)" = configured ] || skip "usb OTG port: no host on it"
 }
 
+t_wifi() {
+	w=/sys/class/net/wlan0
+	[ -e $w ] || { bad "wifi: no wlan0"; return; }
+	f=$(cat $w/flags)
+	[ $((f & 1)) = 1 ] || ip link set wlan0 up
+	n=$(iw dev wlan0 scan 2>/dev/null | grep -c "^BSS")
+	[ $((f & 1)) = 1 ] || ip link set wlan0 down
+	if [ "$n" -gt 0 ]; then
+		ok "wifi: a scan finds $n network(s)"
+	else
+		skip "wifi: wlan0 is there, a scan finds no network"
+	fi
+}
+
+t_bluetooth() {
+	a=$(btmgmt info 2>/dev/null | sed -n "s/^[[:space:]]*addr \([0-9A-F:]*\).*/\1/p" | head -n 1)
+	case $a in
+	"" | 00:00:00:00:00:00) bad "bluetooth: no controller" ;;
+	*) ok "bluetooth: controller $a" ;;
+	esac
+}
+
+t_zigbee() {
+	if o=$(zigbee-ash /dev/ttySAC0 2>&1); then
+		ok "zigbee: the chip answers a reset"
+	else
+		bad "zigbee: $(echo "$o" | tail -n 1)"
+	fi
+}
+
 t_uart() {
-	# ttySAC3 is the console and ttySAC1 belongs to Bluetooth.
+	# ttySAC3 is the console, ttySAC1 belongs to Bluetooth and ttySAC0 is
+	# the port of the Zigbee chip.
 	for n in 0 2 4; do
 		if o=$(uart-loopback /dev/ttySAC$n 2>&1); then
 			ok "uart$n: internal loopback"
@@ -111,7 +143,7 @@ t_watchdog() {
 	has /dev/watchdog0 "watchdog"
 }
 
-all="cpu storage net usb uart i2c keys rtc watchdog"
+all="cpu storage net usb wifi bluetooth uart zigbee i2c keys rtc watchdog"
 [ $# -gt 0 ] || set -- $all
 for t; do
 	case " $all " in
