@@ -3,15 +3,15 @@
 # As root, on any Linux:  sh tests/install-test.sh
 set -e
 t=$(mktemp -d)
-trap 'umount "$t/m" 2>/dev/null || :; rm -rf "$t"' EXIT
+trap 'umount "$t/m" "$t/small" 2>/dev/null || :; rm -rf "$t"' EXIT
 dtb=s5p6818-artik710-raptor
-dev=$t/boot.img
+dev=$t/boot.img root=$t/root
 boot() { mount -o loop "$t/boot.img" "$t/m"; (cd "$t/m" && "$@"); umount "$t/m"; }
-run() { ARTIK_BOOT_DEV=$dev ARTIK_ROOT_DIR=$t/root sh "$t/rel/install.sh" "$@" >/dev/null; }
+run() { ARTIK_BOOT_DEV=$dev ARTIK_ROOT_DIR=$root sh "$t/rel/install.sh" "$@" >/dev/null; }
 
-mkdir "$t/m" "$t/root" "$t/rel" "$t/bin"
+mkdir "$t/m" "$t/root" "$t/rel" "$t/bin" "$t/small"
 truncate -s 32M "$t/boot.img"
-mke2fs -q -t ext4 "$t/boot.img"
+mke2fs -q -t ext4 -b 4096 "$t/boot.img"
 boot sh -c "echo stock > Image; echo stock > uInitrd; echo stock > $dtb-rev00.dtb; echo other > $dtb-rev03.dtb; echo keep > explorer.dtb"
 
 cp "$(dirname "$0")/../tools/install.sh" "$t/rel/"
@@ -23,10 +23,15 @@ want=$(sha256sum < rootfs.ext4)
 xz rootfs.ext4
 sha256sum Image uInitrd $dtb.dtb rootfs.ext4.xz install.sh > SHA256SUMS
 
-# the boot partition stays as it is if the root filesystem cannot be written
-mkdir "$t/root/ubuntu-26.04.img"
+# a root filesystem that does not fit: the boot partition stays as it is, and
+# no half-written image is left
+mount -t tmpfs -o size=1m tmpfs "$t/small"
+root=$t/small
 run 2>/dev/null && exit 1
-rmdir "$t/root/ubuntu-26.04.img"
+run --erase 2>/dev/null && exit 1
+[ -z "$(ls "$t/small")" ]
+umount "$t/small"
+root=$t/root
 boot grep -q stock Image
 
 run		# try

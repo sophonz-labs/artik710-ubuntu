@@ -44,7 +44,7 @@ if [ -n "$m" ]; then
 	mount -o remount,rw "$m"
 	# Read-only again at the end: that empties the journal, which U-Boot does
 	# not read, so that a reset without a shutdown finds the new files too.
-	trap 'mount -o remount,ro "$m"' EXIT
+	trap 'mount -o remount,ro "$m" || echo "$m is still writable: use reboot, not the reset button or the power switch" >&2' EXIT
 else
 	m=$(mktemp -d)
 	mount "$dev" "$m"
@@ -76,11 +76,13 @@ if [ "${1:-}" = --restore ]; then
 	exit
 fi
 
-# The root filesystem first: if it does not fit, the board starts as before.
+# The root filesystem first: if it does not fit, the board starts as before,
+# and without a half-written file that fills its disk.
 if [ -z "${1:-}" ]; then
-	xz -dc rootfs.ext4.xz | dd of="$r/ubuntu-26.04.img" bs=1M conv=sparse status=none
+	xz -dc rootfs.ext4.xz | dd of="$r/ubuntu-26.04.img" bs=1M conv=sparse status=none ||
+		{ rm -f "$r/ubuntu-26.04.img"; exit 1; }
 else
-	cp rootfs.ext4.xz "$r/ubuntu-26.04.img.xz"
+	cp rootfs.ext4.xz "$r/ubuntu-26.04.img.xz" || { rm -f "$r/ubuntu-26.04.img.xz"; exit 1; }
 fi
 sync	# now, so that the sync in put is short: no kernel is on the partition then
 
