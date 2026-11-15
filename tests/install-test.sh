@@ -34,6 +34,14 @@ run --restore
 boot sh -c "grep -q stock Image && grep -q stock uInitrd && grep -q other $dtb-rev03.dtb && [ ! -e $dtb.dtb ]"
 [ ! -e "$t/root/ubuntu-26.04.img.xz" ]
 
+# a file that is not on the disk as it was copied stops the script
+mkdir "$t/bin"
+printf '#!/bin/sh\n/bin/cp "$@" && for d; do :; done && echo x >> "$d/Image"\n' > "$t/bin/cp"
+chmod +x "$t/bin/cp"
+(PATH=$t/bin:$PATH; run --restore 2>/dev/null) && exit 1
+run --restore
+boot sh -c '[ "$(cat Image)" = stock ]'
+
 echo broken > Image	# nothing is touched if a file is not the released one
 run 2>/dev/null && exit 1
 boot grep -q stock Image

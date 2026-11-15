@@ -44,10 +44,26 @@ else
 	trap 'umount "$m"; rmdir "$m"' EXIT
 fi
 
+# put FILE...: copy to the boot partition and check what is on the disk.
+# The sync first: ext4 cannot reuse the blocks of removed files before it has
+# committed, and Linux 7.2 leaves zeros in a new file when the partition runs
+# out of blocks under it. Nothing reports that, and U-Boot starts such a kernel.
+put() {
+	sync
+	cp -a "$@" "$m/"
+	sync
+	echo 3 > /proc/sys/vm/drop_caches
+	for f; do
+		cmp "$f" "$m/${f##*/}" || {
+			echo "The boot partition did not take ${f##*/}: run this again before any reboot." >&2
+			exit 1
+		}
+	done
+}
+
 if [ "${1:-}" = --restore ]; then
 	rm -f "$m/Image" "$m/uInitrd" "$m/$dtb"*.dtb "$r/ubuntu-26.04.img.xz"
-	cp -a "$r/stock-boot/." "$m/"
-	sync
+	put "$r/stock-boot"/*
 	echo "The stock system starts at the next boot."
 	echo "$r/ubuntu-26.04.img and $r/stock-boot are not needed any more then."
 	exit
@@ -60,7 +76,7 @@ if [ -e "$m/$dtb-rev00.dtb" ]; then
 fi
 # U-Boot takes the plain name once no file for a revision is left.
 rm -f "$m/Image" "$m/uInitrd" "$m/$dtb"*.dtb
-cp Image uInitrd $dtb.dtb "$m/"
+put Image uInitrd $dtb.dtb
 
 if [ -z "${1:-}" ]; then
 	xz -dc rootfs.ext4.xz | dd of="$r/ubuntu-26.04.img" bs=1M conv=sparse status=none
