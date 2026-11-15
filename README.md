@@ -129,9 +129,10 @@ Back up anything you need from the board before `--erase`.
 - The kernel, the device tree and the initramfs go to the boot partition (eMMC partition 2). The stock files from there are saved in `/root/stock-boot`.
 - The second boot partition (partition 3), the boot loaders and the U-Boot environment are not touched. U-Boot is the boot loader of the board. The stock U-Boot loads the new kernel from the boot partition, under the file names it already uses.
 - Nothing in the boot loader area of the eMMC is written.
-- The root filesystem is written first and the boot partition last. If the script stops before that, the board starts as it did before.
+- When installing, the root filesystem is written first and the boot partition last. If the script stops before that, the board starts as it did before.
 - After copying, the script reads the files back from the boot partition and compares them. If it says that the boot partition did not take a file, run it again before any reboot: U-Boot would start a damaged kernel.
 - The stock system has the boot partition on `/boot`, read-only. The script makes it writable and sets it back to read-only at the end.
+- Do not reset or power off the board while the script runs. U-Boot does not read the journal of the boot partition, and the new files are complete for it only when the script has ended.
 
 ### Testing state of the installer
 
