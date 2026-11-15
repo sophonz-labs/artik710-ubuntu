@@ -8,8 +8,10 @@ dtb=s5p6818-artik710-raptor
 dev=$t/boot.img root=$t/root
 boot() { mount -o loop "$t/boot.img" "$t/m"; (cd "$t/m" && "$@"); umount "$t/m"; }
 run() { ARTIK_BOOT_DEV=$dev ARTIK_ROOT_DIR=$root sh "$t/rel/install.sh" "$@" >/dev/null; }
+# as "curl URL | sh": the script comes through a pipe
+piped() { (cd "$t/rel" && PATH=$t/net:$PATH ARTIK_BOOT_DEV=$dev ARTIK_ROOT_DIR=$root sh -s -- "$@" < install.sh >/dev/null 2>&1); }
 
-mkdir "$t/m" "$t/root" "$t/rel" "$t/bin" "$t/small"
+mkdir "$t/m" "$t/root" "$t/rel" "$t/bin" "$t/small" "$t/net" "$t/alone"
 truncate -s 32M "$t/boot.img"
 mke2fs -q -t ext4 -b 4096 "$t/boot.img"
 boot sh -c "echo stock > Image; echo stock > uInitrd; echo stock > $dtb-rev00.dtb; echo other > $dtb-rev03.dtb; echo keep > explorer.dtb"
@@ -23,6 +25,28 @@ want=$(sha256sum < rootfs.ext4)
 xz rootfs.ext4
 sha256sum Image uInitrd $dtb.dtb rootfs.ext4.xz install.sh > SHA256SUMS
 
+# The release page: this curl takes the files from the release directory. While
+# $t/net/bad is there, the install.sh that it gives is not the released one.
+cat > "$t/net/curl" <<EOF
+#!/bin/sh
+case \$4 in https://github.com/sophonz-labs/artik710-ubuntu/releases/latest/download/"\$3") ;; *) exit 1 ;; esac
+echo "\$3" >> "$t/net/log"
+{ [ "\$3" != install.sh ] || [ ! -e "$t/net/bad" ] || echo "touch $t/net/ran"; cat "$t/rel/\$3"; } > "\$3"
+EOF
+chmod +x "$t/net/curl"
+
+# another machine than the board is refused (without the stand-in for its boot partition)
+grep -q artik710 /proc/device-tree/compatible 2>/dev/null ||
+	(ARTIK_ROOT_DIR=$t/small sh "$t/rel/install.sh" --restore 2>&1 || :) | grep -q 'not an ARTIK710'
+
+# a download that is not the released file is not run, and nothing is touched
+touch "$t/net/bad"
+piped && exit 1
+rm "$t/net/bad"
+[ ! -e "$t/net/ran" ]
+[ "$(wc -l < "$t/net/log")" = 6 ]
+boot grep -q stock Image
+
 # a root filesystem that does not fit: the boot partition stays as it is, and
 # no half-written image is left
 mount -t tmpfs -o size=1m tmpfs "$t/small"
@@ -34,12 +58,22 @@ umount "$t/small"
 root=$t/root
 boot grep -q stock Image
 
-run		# try
-boot sh -c "[ ! -L Image ] && grep -q new Image && grep -q new uInitrd && grep -q new $dtb.dtb && grep -q keep explorer.dtb && ! ls $dtb-rev* 2>/dev/null"
-grep -q stock "$t/root/stock-boot/Image" && grep -q other "$t/root/stock-boot/$dtb-rev03.dtb"
+# Try, with the script alone in a directory. It fetches the release, of the
+# files that are there from the last time only the wrong one, and goes on with
+# the copy that came with it.
+cp install.sh "$t/alone/"
+PATH=$t/net:$PATH ARTIK_BOOT_DEV=$dev ARTIK_ROOT_DIR=$root sh "$t/alone/install.sh" >/dev/null 2>&1
+[ "$(wc -l < "$t/net/log")" = 8 ]
+cmp install.sh "$t/root/artik710-ubuntu/install.sh"
+boot sh -c "grep -q new Image && grep -q new uInitrd && grep -q new $dtb.dtb && grep -q keep explorer.dtb && ! ls $dtb-rev* 2>/dev/null"
+grep -q stock "$t/root/stock-boot/Image"
+grep -q other "$t/root/stock-boot/$dtb-rev03.dtb"
 [ "$(sha256sum < "$t/root/ubuntu-26.04.img")" = "$want" ]
 
-run --erase	# the kernel is the new one already: the saved stock files stay
+# Through a pipe it fetches the release too, whatever is in the directory. The
+# kernel is the new one already: the saved stock files stay.
+piped --erase
+[ "$(wc -l < "$t/net/log")" = 9 ]
 cmp rootfs.ext4.xz "$t/root/ubuntu-26.04.img.xz"
 grep -q stock "$t/root/stock-boot/Image"
 
@@ -73,6 +107,7 @@ mount -o remount,ro "$t/m"
 dev=$(awk -v m="$t/m" '$2 == m { print $1 }' /proc/mounts)
 run
 grep -q new "$t/m/Image"
+[ ! -L "$t/m/Image" ]
 run --restore
 grep -q stock "$t/m/Image"
 grep -q "^$dev $t/m ext4 ro" /proc/mounts

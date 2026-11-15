@@ -1,6 +1,9 @@
 #!/bin/sh
-# Put a release on an ARTIK710. Run it as root on the board, in the directory
-# with the release files, from the stock system or from this one.
+# Put a release on an ARTIK710. Run it as root on the board, from the stock
+# system or from this one, in the directory with the release files. Without
+# them, it first fetches the latest release to /root/artik710-ubuntu:
+#   curl -fsSL https://github.com/sophonz-labs/artik710-ubuntu/releases/latest/download/install.sh | sh
+#   (with a mode: ... | sh -s -- --erase)
 #
 #   sh install.sh            try it: the new system runs from an image file on
 #                            the stock root filesystem, which stays as it is
@@ -22,6 +25,29 @@ r=/root
 [ ! -e /mnt/root/ubuntu-26.04.img ] || r=/mnt/root
 r=${ARTIK_ROOT_DIR:-$r}
 dtb=s5p6818-artik710-raptor
+
+# The command from the README, pasted on another machine, stops here.
+[ -n "${ARTIK_BOOT_DEV:-}" ] || grep -q artik710 /proc/device-tree/compatible 2>/dev/null || {
+	echo "This is not an ARTIK710." >&2
+	exit 1
+}
+
+# Without the release files, as when it comes through a pipe: fetch them and go
+# on with the copy that came with them. The shell reads this block as a whole,
+# so that a download of this script that breaks off starts nothing.
+case $0 in *install.sh) [ -e SHA256SUMS ] ;; *) false ;; esac || {
+	u=https://github.com/sophonz-labs/artik710-ubuntu/releases/latest/download
+	mkdir -p "$r/artik710-ubuntu"
+	cd "$r/artik710-ubuntu"
+	get() { if command -v curl >/dev/null; then curl -fL -o "$1" "$u/$1"; else wget -O "$1" "$u/$1"; fi; }
+	get SHA256SUMS
+	for f in Image uInitrd $dtb.dtb rootfs.ext4.xz install.sh; do
+		# a file that is here already, from an earlier run, is not fetched again
+		grep " $f\$" SHA256SUMS | sha256sum -c >/dev/null 2>&1 || get "$f"
+	done
+	sha256sum -c --quiet SHA256SUMS
+	exec sh install.sh "$@"
+}
 
 case ${1:-} in
 "" | --erase) sha256sum -c SHA256SUMS ;;
