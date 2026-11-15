@@ -26,6 +26,13 @@ r=/root
 r=${ARTIK_ROOT_DIR:-$r}
 dtb=s5p6818-artik710-raptor
 
+case ${1:-} in "" | --erase | --restore) ;; *)
+	# the comment at the top is the help, when this is a file
+	case $0 in *install.sh) sed -n '2,/^set -e/p' "$0" | sed '$d; s/^# \{0,1\}//' ;; esac
+	echo "usage: install.sh [--erase | --restore]" >&2
+	exit 1 ;;
+esac
+
 # The command from the README, pasted on another machine, stops here.
 [ -n "${ARTIK_BOOT_DEV:-}" ] || grep -q artik710 /proc/device-tree/compatible 2>/dev/null || {
 	echo "This is not an ARTIK710." >&2
@@ -40,12 +47,15 @@ case $0 in *install.sh) [ -e SHA256SUMS ] ;; *) false ;; esac || {
 	mkdir -p "$r/artik710-ubuntu"
 	cd "$r/artik710-ubuntu"
 	get() { if command -v curl >/dev/null; then curl -fL -o "$1" "$u/$1"; else wget -O "$1" "$u/$1"; fi; }
+	# fails for a file that SHA256SUMS does not list, too
+	ok() { grep " $f\$" SHA256SUMS | sha256sum -c --quiet; }
 	get SHA256SUMS
-	for f in Image uInitrd $dtb.dtb rootfs.ext4.xz install.sh; do
+	fs="Image uInitrd $dtb.dtb rootfs.ext4.xz install.sh"
+	[ "${1:-}" != --restore ] || fs=install.sh
+	for f in $fs; do
 		# a file that is here already, from an earlier run, is not fetched again
-		grep " $f\$" SHA256SUMS | sha256sum -c >/dev/null 2>&1 || get "$f"
+		ok 2>/dev/null || { get "$f"; ok; }
 	done
-	sha256sum -c --quiet SHA256SUMS
 	exec sh install.sh "$@"
 }
 
@@ -56,7 +66,6 @@ case ${1:-} in
 		echo "no stock kernel in $r/stock-boot: it was not saved here" >&2
 		exit 1
 	} ;;
-*) sed -n '2,/^set -e/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 1 ;;
 esac
 if [ -z "${1:-}" ] && [ "$r" = /mnt/root ]; then
 	echo "The system in $r/ubuntu-26.04.img is running. To replace it," >&2

@@ -9,7 +9,7 @@ dev=$t/boot.img root=$t/root
 boot() { mount -o loop "$t/boot.img" "$t/m"; (cd "$t/m" && "$@"); umount "$t/m"; }
 run() { ARTIK_BOOT_DEV=$dev ARTIK_ROOT_DIR=$root sh "$t/rel/install.sh" "$@" >/dev/null; }
 # as "curl URL | sh": the script comes through a pipe
-piped() { (cd "$t/rel" && PATH=$t/net:$PATH ARTIK_BOOT_DEV=$dev ARTIK_ROOT_DIR=$root sh -s -- "$@" < install.sh >/dev/null 2>&1); }
+piped() { (cd "$t/rel" && cat install.sh | PATH=$t/net:$PATH ARTIK_BOOT_DEV=$dev ARTIK_ROOT_DIR=$root sh -s -- "$@" >/dev/null 2>&1); }
 
 mkdir "$t/m" "$t/root" "$t/rel" "$t/bin" "$t/small" "$t/net" "$t/alone"
 truncate -s 32M "$t/boot.img"
@@ -38,6 +38,11 @@ chmod +x "$t/net/curl"
 # another machine than the board is refused (without the stand-in for its boot partition)
 grep -q artik710 /proc/device-tree/compatible 2>/dev/null ||
 	(ARTIK_ROOT_DIR=$t/small sh "$t/rel/install.sh" --restore 2>&1 || :) | grep -q 'not an ARTIK710'
+
+# a mode that does not exist is refused before anything is fetched
+piped --help && exit 1
+sh "$t/rel/install.sh" --help 2>/dev/null | grep -q 'put the stock kernel back'
+[ ! -e "$t/net/log" ]
 
 # a download that is not the released file is not run, and nothing is touched
 touch "$t/net/bad"
@@ -83,7 +88,11 @@ run --restore 2>/dev/null && exit 1
 mv "$t/uInitrd" "$t/root/stock-boot/"
 boot grep -q new Image
 
-run --restore
+# through a pipe, --restore fetches the checksums only: it has the script
+# already, and does not need the kernel that is not there any more
+rm "$t/root/artik710-ubuntu/Image"
+piped --restore
+[ "$(wc -l < "$t/net/log")" = 10 ]
 boot sh -c "grep -q stock Image && grep -q stock uInitrd && grep -q other $dtb-rev03.dtb && [ ! -e $dtb.dtb ]"
 [ ! -e "$t/root/ubuntu-26.04.img.xz" ]
 
@@ -111,7 +120,9 @@ grep -q new "$t/m/Image"
 run --restore
 grep -q stock "$t/m/Image"
 grep -q "^$dev $t/m ext4 ro" /proc/mounts
-dumpe2fs -h "$dev" 2>/dev/null | grep -q needs_recovery && exit 1
+dumpe2fs -h "$dev" 2>/dev/null | grep '^Filesystem features' > "$t/features"
+grep -q has_journal "$t/features"
+grep -q needs_recovery "$t/features" && exit 1
 umount "$t/m"
 dev=$t/boot.img
 
