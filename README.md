@@ -27,7 +27,7 @@ All development and testing happened on one board, hardware revision 6. The tabl
 | PWM, outputs 0 to 2 | works | period measured, an output watched at its pin |
 | ADC, 8 channels | works | the values of the stock system |
 | GPIO | works | used by the tests |
-| Watchdog | works | resets the board after a deliberate kernel panic |
+| Watchdog | works | started by hand, it resets the board after a deliberate kernel panic; the image does not start it |
 | Temperature sensor | works | reads about 50 C |
 | RTC | works | runs |
 | Power key | input device | nobody pressed it |
@@ -51,6 +51,7 @@ The stock kernel has drivers for these, and mainline Linux has none yet:
 These need someone at the board, or hardware that was not available:
 
 - `poweroff`. The PMIC switches the board off, and the handler is registered.
+- Switching the power off and on. The start from the power-on state was tested by setting the PMIC registers to their power-on values in U-Boot, not with the switch (see note 10 under [Notes on the hardware](#notes-on-the-hardware)).
 - Suspend. The image refuses it (`/etc/systemd/sleep.conf.d/artik710.conf`): a board that does not wake up again has to be switched off and on by hand.
 - An SD card.
 - USB devices.
@@ -82,6 +83,8 @@ reboot
 ```
 
 Inside the new system, the stock root filesystem is mounted on `/mnt`.
+
+The board can come back with another IP address: on the test network, the stock system and the new one got different addresses from the same DHCP server.
 
 In this mode, a shutdown ends with messages that a file system could not be unmounted. That is the stock root filesystem: the new system runs from a file on it. The data is written out before the board resets, and the next start replays the journal of that file system (`EXT4-fs (mmcblk0p7): recovery complete`).
 
@@ -145,7 +148,7 @@ Then run the installer on the board, in that directory: `sh install.sh`, `sh ins
 
 ### Testing state of the installer
 
-- Try mode and `--restore` were run on a real board with release v0.1.0: the command under [Try it](#try-it) on the stock system, the reboot into the new system, `--restore` there, and the reboot back into the stock system.
+- Try mode and `--restore` were run on a real board with release v0.1.0: the command under [Try it](#try-it) on the stock system, `reboot` into the new system, `--restore` there, and `reboot` back into the stock system.
 - `--erase` was tested only against an image file in CI. It has not been run on a board.
 
 ### WiFi and Bluetooth firmware
@@ -351,7 +354,8 @@ Findings from the port. Each is a short set of plain facts.
 8. **Audio codec.** The ALC5658 does not answer on the test board, also under the stock kernel. Its I2C lines have no pull-ups there.
 9. **Timers.** The kernel uses the same 4 ms tick as the stock system. There is no high-resolution timer.
 10. **Regulators.** The kernel sets six of the PMIC's regulators (the power management chip's voltage outputs). One is the rail of the CPUs, for the frequency scaling. Five are off after power-on (LDO1, 2, 5, 8 and 9): the stock kernel switches them on, and WiFi and Bluetooth do not work without them. The others stay as they are after power-on, which is what the stock system runs with. A reboot does not show this, because the rails stay on through a reset: test a change to the power rails after a power cycle.
-11. **CPU voltage.** The voltage that the CPUs need at a frequency depends on the chip. Each chip has a level from 0 to 4 in its fuses, and the kernel has the voltage table of the stock kernel for each level. `dmesg | grep ASV` shows the level. The test board has level 1; the other levels were not tested. `sudo cpufreq-step` checks every frequency of a board. A reset without a shutdown (the watchdog after a kernel panic, or `echo b > /proc/sysrq-trigger`) at 400 MHz, where the CPU rail has its lowest voltage, starts the board again.
+11. **CPU voltage.** The voltage that the CPUs need at a frequency depends on the chip. Each chip has a level from 0 to 4 in its fuses, and the kernel has the voltage table of the stock kernel for each level. `dmesg | grep ASV` shows the level. The test board has level 1; the other levels were not tested. `sudo cpufreq-step` checks every frequency of a board. A reset without a shutdown at 400 MHz, where the CPU rail has its lowest voltage, starts the board again. This was tried with `echo b > /proc/sysrq-trigger`, and with a kernel panic after the watchdog had been started by hand.
 12. **Heat.** With all eight CPUs busy at 1400 MHz, the chip reaches 80 C in about half a minute. The kernel then lowers the frequency and holds the temperature there, at 1200 to 1300 MHz on the test board. At 105 C it shuts the system down.
 13. **Addresses of WiFi and Bluetooth.** The BCM43455 has the factory addresses of both in its OTP memory. Its two enable lines (WL_REG_ON, BT_REG_ON) have pull-ups, so the chip keeps its power through a reset of the SoC, and it only starts afresh when both lines are low at the same time. After a reset without that, WiFi comes up with the default MAC address of its settings file, which the kernel replaces by a random one, and Bluetooth with `43:45:C0:00:1F:AC`. The device tree therefore drives BT_REG_ON low before the WiFi side starts. `ethtool -P wlan0` and `btmgmt info` show the addresses.
 14. **Files on a nearly full ext4 partition.** Linux 7.0 and 7.2 can leave a stretch of zeros in a new file when files were removed from a nearly full ext4 filesystem just before: the blocks of the removed files are free for new data only after the next commit, and when the partition runs out of blocks in between, the kernel zeroes a part of the file that it has already written. Nothing reports it. This happened on the boot partition, which is 32 MiB and nearly full, and the board did not boot. Run `sync` between removing and copying, and compare the result. `install.sh` does both.
+15. **Watchdog.** Nothing in the image starts the watchdog. After a kernel panic, the board therefore stays stopped until someone resets it. At shutdown, systemd asks the watchdog for 10 minutes, which is more than it can count: the message `Failed to set watchdog hardware timeout to 10min` is harmless.
