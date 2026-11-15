@@ -113,6 +113,8 @@ int main(int argc, char **argv)
 		perror("mmap");
 		return 2;
 	}
+	/* No readahead: it fills the limit with pages that nobody has asked for. */
+	madvise(map, pages * PAGE, MADV_RANDOM);
 
 	until = time(NULL) + secs;
 	for (long c = 0; c < ncpu; c++)
