@@ -25,7 +25,11 @@ dtb=s5p6818-artik710-raptor
 
 case ${1:-} in
 "" | --erase) sha256sum -c SHA256SUMS ;;
---restore) [ -d "$r/stock-boot" ] || { echo "no $r/stock-boot: the stock kernel was not saved here" >&2; exit 1; } ;;
+--restore)
+	ls "$r/stock-boot/Image" "$r/stock-boot/uInitrd" "$r/stock-boot/$dtb"-rev*.dtb >/dev/null 2>&1 || {
+		echo "no stock kernel in $r/stock-boot: it was not saved here" >&2
+		exit 1
+	} ;;
 *) sed -n '2,/^set -e/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 1 ;;
 esac
 if [ -z "${1:-}" ] && [ "$r" = /mnt/root ]; then
@@ -38,6 +42,9 @@ fi
 m=$(awk -v d="$dev" '$1 == d { print $2; exit }' /proc/mounts)
 if [ -n "$m" ]; then
 	mount -o remount,rw "$m"
+	# Read-only again at the end: that empties the journal, which U-Boot does
+	# not read, so that a reset without a shutdown finds the new files too.
+	trap 'mount -o remount,ro "$m"' EXIT
 else
 	m=$(mktemp -d)
 	mount "$dev" "$m"
@@ -50,7 +57,7 @@ fi
 # out of blocks under it. Nothing reports that, and U-Boot starts such a kernel.
 put() {
 	sync
-	cp -a "$@" "$m/"
+	cp -p "$@" "$m/"
 	sync
 	echo 3 > /proc/sys/vm/drop_caches
 	for f; do
@@ -69,6 +76,14 @@ if [ "${1:-}" = --restore ]; then
 	exit
 fi
 
+# The root filesystem first: if it does not fit, the board starts as before.
+if [ -z "${1:-}" ]; then
+	xz -dc rootfs.ext4.xz | dd of="$r/ubuntu-26.04.img" bs=1M conv=sparse status=none
+else
+	cp rootfs.ext4.xz "$r/ubuntu-26.04.img.xz"
+fi
+sync	# now, so that the sync in put is short: no kernel is on the partition then
+
 # Only the stock system has a device tree per board revision.
 if [ -e "$m/$dtb-rev00.dtb" ]; then
 	mkdir -p "$r/stock-boot"
@@ -79,13 +94,9 @@ rm -f "$m/Image" "$m/uInitrd" "$m/$dtb"*.dtb
 put Image uInitrd $dtb.dtb
 
 if [ -z "${1:-}" ]; then
-	xz -dc rootfs.ext4.xz | dd of="$r/ubuntu-26.04.img" bs=1M conv=sparse status=none
-	sync
 	echo "Reboot to start Ubuntu 26.04 from $r/ubuntu-26.04.img."
 	echo "Login: artik, password artik. To go back: sh install.sh --restore"
 else
-	cp rootfs.ext4.xz "$r/ubuntu-26.04.img.xz"
-	sync
 	echo "Reboot to write Ubuntu 26.04 over the root partition. This takes a few"
 	echo "minutes and EVERYTHING on that partition is lost. Last way out:"
 	echo "sh install.sh --restore"
