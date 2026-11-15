@@ -6,9 +6,11 @@
 # TFTP: macOS only lets system programs such as ssh talk to the local network
 # from this kind of terminal session.)
 #
-# U-Boot arms the SoC watchdog right before booti, so a kernel that hangs is
-# reset after about 10 s and the board boots the stock system again. The
-# initramfs (tools/mk-initramfs) stops the watchdog once it runs.
+# U-Boot arms the SoC watchdog right before booti, so a kernel that stops early
+# is reset after about 10 s and the board boots the stock system again. That
+# covers the time until the kernel's watchdog driver probes (about 1.4 s): the
+# driver stops the watchdog. For a kernel without the driver, the initramfs
+# (tools/mk-initramfs) stops it. A later hang needs a power cycle.
 #
 #   tools/artik-testboot [extra kernel arguments...]
 # Without root=DEV the initramfs ends in a shell on the console. With

@@ -299,7 +299,7 @@ These tools are for development. They expect a board with the stock system insta
 |---|---|
 | `tools/artik-ssh` | ssh to the board. `ARTIK_HOST` sets the address |
 | `tools/artik-serial` | drives the serial console: sends commands, waits for output, talks to U-Boot. `ARTIK_TTY` sets the port |
-| `tools/artik-testboot` | boots the kernel from `out/boot/` once, without installing it. If that kernel hangs, the watchdog resets the board and the installed system comes back |
+| `tools/artik-testboot` | boots the kernel from `out/boot/` once, without installing it. The watchdog runs while that kernel starts: if the kernel stops before its watchdog driver turns the watchdog off (about 1.4 s after the start), the board resets and the installed system comes back. After a later hang, switch the board off and on to get the installed system back |
 | `tools/artik-push-rootfs` | copies the root filesystem image to the board for `artik-testboot` |
 
 Example: boot a kernel that was built, together with the root filesystem you pushed:
