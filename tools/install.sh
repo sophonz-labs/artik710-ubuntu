@@ -54,7 +54,7 @@ case $0 in *install.sh) [ -e SHA256SUMS ] ;; *) false ;; esac || {
 	[ "${1:-}" != --restore ] || fs=install.sh
 	for f in $fs; do
 		# a file that is here already, from an earlier run, is not fetched again
-		ok 2>/dev/null || { get "$f"; ok; }
+		ok >/dev/null 2>&1 || { get "$f"; ok; }
 	done
 	exec sh install.sh "$@"
 }
