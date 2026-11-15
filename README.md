@@ -129,10 +129,13 @@ Back up anything you need from the board before `--erase`.
 - The kernel, the device tree and the initramfs go to the boot partition (eMMC partition 2). The stock files from there are saved in `/root/stock-boot`.
 - The second boot partition (partition 3), the boot loaders and the U-Boot environment are not touched. U-Boot is the boot loader of the board. The stock U-Boot loads the new kernel from the boot partition, under the file names it already uses.
 - Nothing in the boot loader area of the eMMC is written.
+- The root filesystem is written first and the boot partition last. If the script stops before that, the board starts as it did before.
+- After copying, the script reads the files back from the boot partition and compares them. If it says that the boot partition did not take a file, run it again before any reboot: U-Boot would start a damaged kernel.
+- The stock system has the boot partition on `/boot`, read-only. The script makes it writable and sets it back to read-only at the end.
 
 ### Testing state of the installer
 
-- Try mode and `--restore` were run on a real board.
+- Try mode and `--restore` were run on a real board, with the reboot into the new system and back into the stock system.
 - `--erase` was tested only against an image file in CI. It has not been run on a board.
 
 ### WiFi and Bluetooth firmware
@@ -337,7 +340,8 @@ Findings from the port. Each is a short set of plain facts.
 7. **SPI2 chip select.** The chip select (GPIOC10) reads high on the test board, whatever drives it, and also under the stock kernel. Transfers work. A device on that chip select was not tested.
 8. **Audio codec.** The ALC5658 does not answer on the test board, also under the stock kernel. Its I2C lines have no pull-ups there.
 9. **Timers.** The kernel uses the same 4 ms tick as the stock system. There is no high-resolution timer.
-10. **Regulators.** The kernel sets one of the PMIC's regulators (the power management chip's voltage outputs): the rail of the CPUs, for the frequency scaling. The others stay as the boot loader sets them, which is what the stock system runs with.
+10. **Regulators.** The kernel sets six of the PMIC's regulators (the power management chip's voltage outputs). One is the rail of the CPUs, for the frequency scaling. Five are off after power-on (LDO1, 2, 5, 8 and 9): the stock kernel switches them on, and WiFi and Bluetooth do not work without them. The others stay as they are after power-on, which is what the stock system runs with. A reboot does not show this, because the rails stay on through a reset: test a change to the power rails after a power cycle.
 11. **CPU voltage.** The voltage that the CPUs need at a frequency depends on the chip. Each chip has a level from 0 to 4 in its fuses, and the kernel has the voltage table of the stock kernel for each level. `dmesg | grep ASV` shows the level. The test board has level 1; the other levels were not tested. `sudo cpufreq-step` checks every frequency of a board.
 12. **Heat.** With all eight CPUs busy at 1400 MHz, the chip reaches 80 C in about half a minute. The kernel then lowers the frequency and holds the temperature there, at 1200 to 1300 MHz on the test board. At 105 C it shuts the system down.
 13. **Addresses of WiFi and Bluetooth.** The BCM43455 has the factory addresses of both in its OTP memory. Its two enable lines (WL_REG_ON, BT_REG_ON) have pull-ups, so the chip keeps its power through a reset of the SoC, and it only starts afresh when both lines are low at the same time. After a reset without that, WiFi comes up with the default MAC address of its settings file, which the kernel replaces by a random one, and Bluetooth with `43:45:C0:00:1F:AC`. The device tree therefore drives BT_REG_ON low before the WiFi side starts. `ethtool -P wlan0` and `btmgmt info` show the addresses.
+14. **Files on a nearly full ext4 partition.** Linux 7.0 and 7.2 can leave a stretch of zeros in a new file when files were removed from a nearly full ext4 filesystem just before: the blocks of the removed files are free for new data only after the next commit, and when the partition runs out of blocks in between, the kernel zeroes a part of the file that it has already written. Nothing reports it. This happened on the boot partition, which is 32 MiB and nearly full, and the board did not boot. Run `sync` between removing and copying, and compare the result. `install.sh` does both.
