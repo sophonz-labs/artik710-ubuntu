@@ -41,6 +41,7 @@ grep -q artik710 /proc/device-tree/compatible 2>/dev/null ||
 
 # a mode that does not exist is refused before anything is fetched
 piped --help && exit 1
+piped --erase --dry-run && exit 1
 sh "$t/rel/install.sh" --help 2>/dev/null | grep -q 'put the stock kernel back'
 [ ! -e "$t/net/log" ]
 

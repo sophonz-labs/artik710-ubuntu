@@ -26,7 +26,9 @@ r=/root
 r=${ARTIK_ROOT_DIR:-$r}
 dtb=s5p6818-artik710-raptor
 
-case ${1:-} in "" | --erase | --restore) ;; *)
+# one mode and nothing after it: an option that does not exist must not be
+# passed over on the way to --erase
+case $#:${1:-} in 0: | 1: | 1:--erase | 1:--restore) ;; *)
 	# the comment at the top is the help, when this is a file
 	case $0 in *install.sh) sed -n '2,/^set -e/p' "$0" | sed '$d; s/^# \{0,1\}//' ;; esac
 	echo "usage: install.sh [--erase | --restore]" >&2
@@ -48,7 +50,7 @@ case $0 in *install.sh) [ -e SHA256SUMS ] ;; *) false ;; esac || {
 	cd "$r/artik710-ubuntu"
 	get() { if command -v curl >/dev/null; then curl -fL -o "$1" "$u/$1"; else wget -O "$1" "$u/$1"; fi; }
 	# fails for a file that SHA256SUMS does not list, too
-	ok() { grep " $f\$" SHA256SUMS | sha256sum -c --quiet; }
+	ok() { awk -v f="$f" '$2 == f' SHA256SUMS | sha256sum -c --quiet; }
 	get SHA256SUMS
 	fs="Image uInitrd $dtb.dtb rootfs.ext4.xz install.sh"
 	[ "${1:-}" != --restore ] || fs=install.sh
