@@ -3,7 +3,8 @@
  * Load every CPU and check the results: each thread repeats the same integer,
  * memory and floating point work and compares it with the result that the
  * main thread computed before. A CPU that runs too fast for its voltage gets
- * wrong answers (or hangs, which the watchdog catches).
+ * wrong answers or hangs. Nothing in the image starts the watchdog, so a hung
+ * board stays stopped until someone resets it.
  *
  *   cpu-load [seconds]   (default 10)
  *
