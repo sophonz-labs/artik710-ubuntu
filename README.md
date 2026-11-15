@@ -1,5 +1,7 @@
 # artik710-ubuntu
 
+[![CI](https://github.com/sophonz-labs/artik710-ubuntu/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sophonz-labs/artik710-ubuntu/actions/workflows/ci.yml)
+
 Ubuntu 26.04 LTS (arm64) with Linux 7.2.15 for the Samsung ARTIK710 module, on the Raptor carrier board. Together they form the ARTIK 710 developer kit. The module has been discontinued for years, and this community project keeps it running a current Linux.
 
 The image, the kernel and the installer are built from this repository.
@@ -62,37 +64,18 @@ Installing puts this system on a board that runs the stock system. The stock sys
 Requirements:
 
 - The board runs the stock system and you have a root shell on it, through the serial console (the debug USB port, 115200 baud) or ssh.
+- The board reaches github.com. If it does not, see [Without a network connection](#without-a-network-connection).
 - For trying it: about 1.3 GB free on the root filesystem of the board.
 
-Release files, from https://github.com/sophonz-labs/artik710-ubuntu/releases :
-
-| File | What it is |
-|---|---|
-| `Image` | the kernel |
-| `s5p6818-artik710-raptor.dtb` | the device tree, which describes the board to the kernel |
-| `uInitrd` | a small initramfs (a temporary root filesystem that starts the system) |
-| `rootfs.ext4.xz` | the root filesystem image |
-| `install.sh` | puts the files on the board |
-| `SHA256SUMS` | checksums; `install.sh` verifies them |
-
-Download the files on a computer, then copy them to the board. Replace BOARD with the address of the board:
-
-```
-gh release download --repo sophonz-labs/artik710-ubuntu --dir artik710-ubuntu
-scp -r artik710-ubuntu root@BOARD:/root/
-```
-
-Without the `gh` tool, download the six files from the releases page into one directory.
-
-Run `install.sh` as root on the board, in that directory. It has three modes.
+Every step is one command on the board, as root. The installer has three modes.
 
 ### Try it
 
 ```
-sh install.sh
+curl -fsSL https://github.com/sophonz-labs/artik710-ubuntu/releases/latest/download/install.sh | sh
 ```
 
-The new system runs from an image file on the stock root filesystem (`/root/ubuntu-26.04.img`). The stock system stays as it is. Then reboot the board:
+This downloads the latest release to `/root/artik710-ubuntu`, compares the files with their checksums and installs them. The new system runs from an image file on the stock root filesystem (`/root/ubuntu-26.04.img`). The stock system stays as it is. Then reboot the board:
 
 ```
 reboot
@@ -104,34 +87,60 @@ In this mode, a shutdown ends with messages that a file system could not be unmo
 
 ### Go back
 
-```
-sh install.sh --restore
-```
-
-This puts the stock kernel back on the boot partition. Then reboot. When the new system is running, the release directory is under `/mnt`, so the command is:
+In the new system:
 
 ```
 sudo sh /mnt/root/artik710-ubuntu/install.sh --restore
 ```
 
+This puts the stock kernel back on the boot partition. Then reboot. In the stock system, before that reboot, the command is `sh /root/artik710-ubuntu/install.sh --restore`.
+
 ### Replace the stock system
 
 ```
-sh install.sh --erase
+curl -fsSL https://github.com/sophonz-labs/artik710-ubuntu/releases/latest/download/install.sh | sh -s -- --erase
 ```
 
 At the next boot, the image is written over the whole root partition. This takes a few minutes, and everything on that partition is lost. Until that reboot, `--restore` still undoes the change.
 
+In the new system, after trying it, the files are there already: `sudo sh /mnt/root/artik710-ubuntu/install.sh --erase`.
+
 Back up anything you need from the board before `--erase`.
+
+### Without a network connection
+
+A release has six files, at https://github.com/sophonz-labs/artik710-ubuntu/releases :
+
+| File | What it is |
+|---|---|
+| `Image` | the kernel |
+| `s5p6818-artik710-raptor.dtb` | the device tree, which describes the board to the kernel |
+| `uInitrd` | a small initramfs (a temporary root filesystem that starts the system) |
+| `rootfs.ext4.xz` | the root filesystem image |
+| `install.sh` | puts the files on the board |
+| `SHA256SUMS` | checksums; `install.sh` verifies them |
+
+Download them on a computer and copy them to the board. Replace BOARD with the address of the board:
+
+```
+gh release download --repo sophonz-labs/artik710-ubuntu --dir artik710-ubuntu
+scp -r artik710-ubuntu root@BOARD:/root/
+```
+
+Without the `gh` tool, download the six files from the releases page into one directory.
+
+Then run the installer on the board, in that directory: `sh install.sh`, `sh install.sh --erase` or `sh install.sh --restore`. With the files next to it, it downloads nothing.
 
 ### What the installer touches
 
+- The release files stay in `/root/artik710-ubuntu`. `--restore` needs the installer from there.
 - The kernel, the device tree and the initramfs go to the boot partition (eMMC partition 2). The stock files from there are saved in `/root/stock-boot`.
 - The second boot partition (partition 3), the boot loaders and the U-Boot environment are not touched. U-Boot is the boot loader of the board. The stock U-Boot loads the new kernel from the boot partition, under the file names it already uses.
 - Nothing in the boot loader area of the eMMC is written.
 - When installing, the root filesystem is written first and the boot partition last. If the script stops before that, the board starts as it did before.
 - After copying, the script reads the files back from the boot partition and compares them. If it says that the boot partition did not take a file, run it again before any reboot: U-Boot would start a damaged kernel.
 - The stock system has the boot partition on `/boot`, read-only. The script makes it writable and sets it back to read-only at the end.
+- On a machine that is not an ARTIK710, the script stops before it does anything.
 - Do not reset or power off the board while the script runs. U-Boot does not read the journal of the boot partition, and the new files are complete for it only when the script has ended.
 
 ### Testing state of the installer
@@ -320,7 +329,7 @@ tools/check
 ```
 
 - `tools/check lint` runs shellcheck and actionlint, the Python tool compiles, and the C tests build without a warning.
-- `tools/check test` runs `tools/install.sh` against an image file, the coherency and load tests (which must pass on any sound machine), and the self-check of the Zigbee test.
+- `tools/check test` runs `tools/install.sh` against an image file (with dash and with bash as `sh`: the stock system has bash, the new one dash), the coherency and load tests (which must pass on any sound machine), and the self-check of the Zigbee test.
 
 ## CI and releases
 
