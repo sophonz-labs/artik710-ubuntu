@@ -1,8 +1,17 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/artik710-ubuntu-dark.svg">
+    <img src="docs/logo/artik710-ubuntu.svg" alt="artik710 — ubuntu 26.04 · linux mainline" width="520">
+  </picture>
+</p>
+
 # artik710-ubuntu
 
 [![CI](https://github.com/sophonz-labs/artik710-ubuntu/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sophonz-labs/artik710-ubuntu/actions/workflows/ci.yml)
 
 Ubuntu 26.04 LTS (arm64) with Linux 7.2.15 for the Samsung ARTIK710 module, on the Raptor carrier board. Together they form the ARTIK 710 developer kit. The module has been discontinued for years, and this community project keeps it running a current Linux.
+
+The logo is redrawn after the ARTIK module cube. ARTIK is a Samsung trademark, and this project is not affiliated with Samsung. The lettering is Outfit (SIL OFL 1.1).
 
 The image, the kernel and the installer are built from this repository.
 
