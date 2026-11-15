@@ -309,10 +309,12 @@
 		#size-cells = <0>;
 
 		/*
-		 * NXE2000: the registers of the Ricoh RC5T619. Only the rail
-		 * of the CPUs is described, for the frequency scaling: the
-		 * boot loader switches all rails on, and with the voltages
-		 * that the stock system has.
+		 * NXE2000: the registers of the Ricoh RC5T619. The rail of
+		 * the CPUs is here for the frequency scaling. LDO1, 2, 5, 8
+		 * and 9 are off after power-on, and the stock kernel switches
+		 * them on with these voltages: WiFi and Bluetooth are dead
+		 * without them. The other rails are on after power-on, with
+		 * the voltages that the stock system has.
 		 */
 		pmic@32 {
 			compatible = "ricoh,rc5t619";
@@ -333,6 +335,36 @@
 					regulator-settling-time-up-us = <102>;
 					regulator-always-on;
 					regulator-boot-on;
+				};
+
+				LDO1 {
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
+					regulator-always-on;
+				};
+
+				LDO2 {
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
+					regulator-always-on;
+				};
+
+				LDO5 {
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
+					regulator-always-on;
+				};
+
+				LDO8 {
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
+					regulator-always-on;
+				};
+
+				LDO9 {
+					regulator-min-microvolt = <1800000>;
+					regulator-max-microvolt = <1800000>;
+					regulator-always-on;
 				};
 			};
 		};
