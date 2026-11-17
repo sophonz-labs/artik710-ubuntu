@@ -80,12 +80,15 @@ pull)
 	;;
 export)
 	mkdir -p kernel/patches/artik710
-	# The TLB workaround is for every S5P6818 board, so it gets a patch of its own.
+	# The TLB workaround and the counter are for every S5P6818 board, so each
+	# gets a patch of its own.
 	run sh -ec "$sync"'
 		p=/work/kernel/patches/artik710
 		tlb="arch/arm64/Kconfig arch/arm64/kvm/Kconfig arch/arm64/include/asm/tlbflush.h"
+		cnt="arch/arm64/kernel/process.c arch/arm64/mm/proc.S drivers/clocksource/samsung_pwm_timer.c"
 		git diff armbian-base -- $tlb > $p/0001-arm64-cci400-dvmv7-tlb-workaround.patch
-		git diff armbian-base -- . $(printf ":!%s " $tlb) > $p/0002-artik710.patch
+		git diff armbian-base -- . $(printf ":!%s " $tlb $cnt) > $p/0002-artik710.patch
+		git diff armbian-base -- $cnt > $p/0003-arm64-nexell-emulate-cntvct.patch
 		git diff --stat armbian-base'
 	;;
 *)
