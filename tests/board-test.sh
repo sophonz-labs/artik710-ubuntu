@@ -36,6 +36,8 @@ t_cpu() {
 	fi
 	# The governor takes the CPUs to the highest frequency for this.
 	if o=$(cpu-load 3); then ok "cpu: load with checked results"; else bad "$o"; fi
+	# for the programs that read the ARM counter themselves, as Go does
+	if o=$(cntvct); then ok "counter: it runs for user programs"; else bad "$o"; fi
 }
 
 t_storage() {
