@@ -333,6 +333,7 @@ The test programs are in `tests/`. They are installed in the image under `/usr/l
 | `stress-integrity` | compresses and hashes on every CPU and compares the results |
 | `cpu-load` | computes on every CPU and compares the results: a CPU that is too fast for its voltage computes wrong |
 | `cpufreq-step` | every CPU frequency, the lowest first: the clock and the voltage that the hardware really has, then `cpu-load` |
+| `cntvct` | the ARM counter runs for a program that reads it itself (see [Notes on the hardware](#notes-on-the-hardware)). `-v` prints what each CPU reads, and a number of seconds repeats the check for that long |
 
 Some checks need no board. CI runs them with:
 
@@ -341,7 +342,7 @@ tools/check
 ```
 
 - `tools/check lint` runs shellcheck and actionlint, the Python tool compiles, and the C tests build without a warning.
-- `tools/check test` runs `tools/install.sh` against an image file (with dash and with bash as `sh`: the stock system has bash, the new one dash), the coherency and load tests (which must pass on any sound machine), and the self-check of the Zigbee test.
+- `tools/check test` runs `tools/install.sh` against an image file (with dash and with bash as `sh`: the stock system has bash, the new one dash), the coherency, load and counter tests (which must pass on any sound machine), and the self-check of the Zigbee test.
 
 ## CI and releases
 
@@ -368,3 +369,4 @@ Findings from the port. Each is a short set of plain facts.
 13. **Addresses of WiFi and Bluetooth.** The BCM43455 has the factory addresses of both in its OTP memory. Its two enable lines (WL_REG_ON, BT_REG_ON) have pull-ups, so the chip keeps its power through a reset of the SoC, and it only starts afresh when both lines are low at the same time. After a reset without that, WiFi comes up with the default MAC address of its settings file, which the kernel replaces by a random one, and Bluetooth with `43:45:C0:00:1F:AC`. The device tree therefore drives BT_REG_ON low before the WiFi side starts. `ethtool -P wlan0` and `btmgmt info` show the addresses.
 14. **Files on a nearly full ext4 partition.** Linux 7.0 and 7.2 can leave a stretch of zeros in a new file when files were removed from a nearly full ext4 filesystem just before: the blocks of the removed files are free for new data only after the next commit, and when the partition runs out of blocks in between, the kernel zeroes a part of the file that it has already written. Nothing reports it. This happened on the boot partition, which is 32 MiB and nearly full, and the board did not boot. Run `sync` between removing and copying, and compare the result. `install.sh` does both.
 15. **Watchdog.** Nothing in the image starts the watchdog while the system runs. After a kernel panic, the board therefore stays stopped until someone resets it. At shutdown, systemd asks the watchdog for 10 minutes, which is more than it can count: the message `Failed to set watchdog hardware timeout to 10min` is harmless.
+16. **ARM counter.** The counter of the ARM generic timer does not run on the S5P6818: `CNTVCT_EL0` reads 0 on every CPU, while `CNTFRQ_EL0` names 12 MHz. A program that reads the counter itself and waits for it to advance waits forever. Go does that from version 1.26, in the delay of its spin loops. Its programs then stop at full CPU load as soon as threads meet in the garbage collector; the same program built with Go 1.25 runs. The kernel therefore answers these reads itself (`kernel/patches/artik710/0003-arm64-nexell-emulate-cntvct.patch`): a read from a program traps, and the program gets the count of the PWM timer, as a 64-bit counter at 100 MHz. A read takes about 1 µs. `cntvct` checks it. This affects every S5P6818 board. Release v0.1.0 does not have the fix.
